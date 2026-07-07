@@ -1,0 +1,30 @@
+{
+    "name": "nativeblade-studio",
+    "productName": "NativeBlade Studio",
+    "version": "0.1.0",
+    "description": "Build NativeBlade apps with AI — locally, driven by your own Claude Code CLI subscription.",
+    "private": true,
+    "type": "module",
+    "main": "out/main/index.js",
+    "scripts": {
+        "dev": "electron-vite dev",
+        "build": "electron-vite build",
+        "preview": "electron-vite preview",
+        "icons": "electron-icon-builder --input=./src/renderer/src/assets/nb-logo.png --output=./build --flatten"
+    },
+    "dependencies": {
+        "@xenova/transformers": "^2.17.2",
+        "lucide-react": "^1.23.0",
+        "qrcode": "^1.5.4",
+        "react": "^18.3.1",
+        "react-dom": "^18.3.1",
+        "zustand": "^5.0.2"
+    },
+    "devDependencies": {
+        "@vitejs/plugin-react": "^4.3.4",
+        "electron": "^33.2.1",
+        "electron-icon-builder": "^2.0.1",
+        "electron-vite": "^2.3.0",
+        "vite": "^5.4.11"
+    }
+}

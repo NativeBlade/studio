@@ -1,0 +1,84 @@
+name: Generate CSR for Apple Certificate
+
+on:
+  workflow_dispatch:
+    inputs:
+      common_name:
+        description: 'Your name or company name (e.g., "John Doe" or "My Company LLC")'
+        required: true
+        type: string
+      email:
+        description: 'Your Apple Developer email'
+        required: true
+        type: string
+      country:
+        description: 'Country code (2 letters, e.g., BR, US)'
+        required: true
+        default: 'BR'
+        type: string
+
+jobs:
+  generate-csr:
+    runs-on: macos-latest
+
+    steps:
+      - name: Generate Private Key and CSR
+        run: |
+          echo "Generating private key..."
+          openssl genrsa -out private_key.key 2048
+
+          echo "Generating CSR..."
+          openssl req -new -key private_key.key -out certificate_request.csr \
+            -subj "/CN=${{ inputs.common_name }}/emailAddress=${{ inputs.email }}/C=${{ inputs.country }}"
+
+          echo "Files generated successfully!"
+          echo ""
+          echo "=========================================="
+          echo "CSR Content (for reference):"
+          echo "=========================================="
+          cat certificate_request.csr
+
+      - name: Upload Private Key
+        uses: actions/upload-artifact@v5
+        with:
+          name: private-key-KEEP-SECRET
+          path: private_key.key
+          retention-days: 1
+
+      - name: Upload CSR
+        uses: actions/upload-artifact@v5
+        with:
+          name: certificate-signing-request
+          path: certificate_request.csr
+          retention-days: 1
+
+      - name: Instructions
+        run: |
+          echo ""
+          echo "=========================================="
+          echo "NEXT STEPS:"
+          echo "=========================================="
+          echo ""
+          echo "1. Download both artifacts from this workflow run"
+          echo ""
+          echo "2. Go to Apple Developer Portal:"
+          echo "   https://developer.apple.com/account/resources/certificates/add"
+          echo ""
+          echo "3. Select 'Developer ID Application' certificate type"
+          echo ""
+          echo "4. Upload the 'certificate_request.csr' file"
+          echo ""
+          echo "5. Download the generated .cer file from Apple"
+          echo ""
+          echo "6. Run the 'Generate P12' workflow with:"
+          echo "   - The private key (from this workflow)"
+          echo "   - The .cer file (from Apple)"
+          echo ""
+          echo "=========================================="
+          echo "SECURITY WARNING:"
+          echo "=========================================="
+          echo "- Download artifacts IMMEDIATELY"
+          echo "- Delete this workflow run after downloading"
+          echo "- NEVER share the private key"
+          echo "- Artifacts auto-delete in 1 day"
+          echo "=========================================="

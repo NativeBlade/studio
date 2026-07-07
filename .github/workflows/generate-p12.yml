@@ -1,0 +1,138 @@
+name: Generate P12 Certificate
+
+on:
+  workflow_dispatch:
+    inputs:
+      p12_password:
+        description: 'Password for the .p12 file (remember this!)'
+        required: true
+        type: string
+
+jobs:
+  generate-p12:
+    runs-on: macos-latest
+
+    steps:
+      - name: Instructions for file upload
+        run: |
+          echo "=========================================="
+          echo "This workflow requires manual file upload"
+          echo "=========================================="
+          echo ""
+          echo "Since GitHub Actions doesn't support file input,"
+          echo "you need to upload files via repository secrets."
+          echo ""
+          echo "Before running this workflow, create these secrets:"
+          echo ""
+          echo "1. APPLE_PRIVATE_KEY_BASE64"
+          echo "   - Take your private_key.key file"
+          echo "   - Convert to base64: base64 -i private_key.key"
+          echo "   - Paste the output as secret value"
+          echo ""
+          echo "2. APPLE_CERTIFICATE_BASE64"
+          echo "   - Take your .cer file from Apple"
+          echo "   - Convert to base64: base64 -i developerID_application.cer"
+          echo "   - Paste the output as secret value"
+          echo ""
+          echo "On Windows, use: certutil -encode file.key file.b64"
+          echo "Then copy content without header/footer lines"
+          echo "=========================================="
+
+      - name: Check secrets exist
+        run: |
+          if [ -z "${{ secrets.APPLE_PRIVATE_KEY_BASE64 }}" ]; then
+            echo "ERROR: APPLE_PRIVATE_KEY_BASE64 secret not found!"
+            echo "Please create this secret with your private key in base64"
+            exit 1
+          fi
+
+          if [ -z "${{ secrets.APPLE_CERTIFICATE_BASE64 }}" ]; then
+            echo "ERROR: APPLE_CERTIFICATE_BASE64 secret not found!"
+            echo "Please create this secret with your .cer file in base64"
+            exit 1
+          fi
+
+          echo "Both secrets found! Proceeding..."
+
+      - name: Decode files
+        run: |
+          echo "${{ secrets.APPLE_PRIVATE_KEY_BASE64 }}" | base64 --decode > private_key.key
+          echo "${{ secrets.APPLE_CERTIFICATE_BASE64 }}" | base64 --decode > developer_certificate.cer
+
+          echo "Files decoded successfully"
+
+      - name: Convert CER to PEM
+        run: |
+          # Apple certificates are in DER format, convert to PEM
+          openssl x509 -inform DER -in developer_certificate.cer -out developer_certificate.pem
+
+          echo "Certificate converted to PEM format"
+          echo ""
+          echo "Certificate info:"
+          openssl x509 -in developer_certificate.pem -noout -subject -issuer
+
+      - name: Generate P12
+        run: |
+          openssl pkcs12 -export \
+            -out developer_certificate.p12 \
+            -inkey private_key.key \
+            -in developer_certificate.pem \
+            -password pass:${{ inputs.p12_password }}
+
+          echo "P12 file generated successfully!"
+
+      - name: Generate Base64 for GitHub Secrets
+        id: base64
+        run: |
+          P12_BASE64=$(base64 -i developer_certificate.p12)
+          echo "p12_base64=$P12_BASE64" >> $GITHUB_OUTPUT
+
+          echo ""
+          echo "=========================================="
+          echo "CSC_LINK value (Base64 of .p12):"
+          echo "=========================================="
+          echo ""
+          echo "$P12_BASE64"
+          echo ""
+          echo "=========================================="
+
+      - name: Upload P12 Certificate
+        uses: actions/upload-artifact@v5
+        with:
+          name: p12-certificate-KEEP-SECRET
+          path: developer_certificate.p12
+          retention-days: 1
+
+      - name: Final Instructions
+        run: |
+          echo ""
+          echo "=========================================="
+          echo "SUCCESS! Now configure these GitHub Secrets:"
+          echo "=========================================="
+          echo ""
+          echo "1. CSC_LINK"
+          echo "   Value: (the base64 string shown above)"
+          echo ""
+          echo "2. CSC_KEY_PASSWORD"
+          echo "   Value: ${{ inputs.p12_password }}"
+          echo ""
+          echo "3. APPLE_ID"
+          echo "   Value: (your Apple Developer email)"
+          echo ""
+          echo "4. APPLE_APP_SPECIFIC_PASSWORD"
+          echo "   Generate at: https://appleid.apple.com/account/manage"
+          echo "   -> Sign-In and Security -> App-Specific Passwords"
+          echo ""
+          echo "5. APPLE_TEAM_ID"
+          echo "   Find at: https://developer.apple.com/account"
+          echo "   -> Membership Details -> Team ID"
+          echo ""
+          echo "=========================================="
+          echo "CLEANUP (Important!):"
+          echo "=========================================="
+          echo "1. Delete APPLE_PRIVATE_KEY_BASE64 secret"
+          echo "2. Delete APPLE_CERTIFICATE_BASE64 secret"
+          echo "3. Delete this workflow run"
+          echo "4. Delete the generate-csr.yml workflow file"
+          echo "5. Delete the generate-p12.yml workflow file"
+          echo "=========================================="

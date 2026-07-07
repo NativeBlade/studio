@@ -1,0 +1,241 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  S3_BUCKET: nativeblade-studio-releases
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Get version from tag
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            VERSION="1.0.0"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Update package.json version
+        shell: bash
+        run: |
+          npm version ${{ steps.version.outputs.version }} --no-git-tag-version --allow-same-version
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Java (required by SSL.com CodeSignTool)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Download SSL.com CodeSignTool
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://www.ssl.com/download/codesigntool-for-windows/" -OutFile "CodeSignTool.zip"
+          Expand-Archive -Path CodeSignTool.zip -DestinationPath CodeSignTool -Force
+          $bat = Get-ChildItem -Path CodeSignTool -Recurse -Filter "CodeSignTool.bat" | Select-Object -First 1
+          if (-not $bat) { throw "CodeSignTool.bat not found after extraction" }
+          Write-Host "Found CodeSignTool.bat at: $($bat.FullName)"
+          "CODE_SIGN_TOOL_PATH=$($bat.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Build Electron Windows (signed)
+        run: npx electron-builder --win --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          SSL_USERNAME: ${{ secrets.SSL_USERNAME }}
+          SSL_PASSWORD: ${{ secrets.SSL_PASSWORD }}
+          SSL_CREDENTIAL_ID: ${{ secrets.SSL_CREDENTIAL_ID }}
+          SSL_TOTP_SECRET: ${{ secrets.SSL_TOTP_SECRET }}
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: windows-build
+          path: |
+            release/*.exe
+            release/*.exe.blockmap
+            release/latest.yml
+          retention-days: 1
+
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Get version from tag
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            VERSION="1.0.0"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Update package.json version
+        run: |
+          npm version ${{ steps.version.outputs.version }} --no-git-tag-version --allow-same-version
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Build and Sign Electron macOS
+        run: npx electron-builder --mac --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          # Code Signing
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          # Notarization
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: macos-build
+          path: |
+            release/*.dmg
+            release/*.dmg.blockmap
+            release/*.zip
+            release/*.zip.blockmap
+            release/latest-mac.yml
+          retention-days: 1
+
+  build-linux:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Get version from tag
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            VERSION="1.0.0"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Update package.json version
+        run: |
+          npm version ${{ steps.version.outputs.version }} --no-git-tag-version --allow-same-version
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Build Electron Linux
+        run: npx electron-builder --linux --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: linux-build
+          path: |
+            release/*.deb
+            release/*.rpm
+            release/latest-linux.yml
+          retention-days: 1
+          if-no-files-found: ignore
+
+  upload-to-s3:
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: windows-build
+          path: ./release/windows
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: macos-build
+          path: ./release/macos
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: linux-build
+          path: ./release/linux
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload to S3
+        run: |
+          # Upload Windows
+          aws s3 sync ./release/windows/ s3://${{ env.S3_BUCKET }}/windows/ --delete
+          
+          # Upload macOS
+          aws s3 sync ./release/macos/ s3://${{ env.S3_BUCKET }}/macos/ --delete
+          
+          # Upload Linux
+          aws s3 sync ./release/linux/ s3://${{ env.S3_BUCKET }}/linux/ --delete
+
+      - name: Print download URLs
+        run: |
+          echo "============================================"
+          echo "✅ Upload complete!"
+          echo "============================================"
+          echo ""
+          echo "📦 Download URLs:"
+          echo "   Windows: https://${{ env.S3_BUCKET }}.s3.${{ env.AWS_REGION }}.amazonaws.com/windows/ddless.exe"
+          echo "   macOS:   https://${{ env.S3_BUCKET }}.s3.${{ env.AWS_REGION }}.amazonaws.com/macos/ddless.dmg"
+          echo "   Linux:   https://${{ env.S3_BUCKET }}.s3.${{ env.AWS_REGION }}.amazonaws.com/linux/ddless.deb"
+          echo "   Linux:   https://${{ env.S3_BUCKET }}.s3.${{ env.AWS_REGION }}.amazonaws.com/linux/ddless.rpm"
