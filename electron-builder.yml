@@ -7,9 +7,16 @@ directories:
 
 # electron-vite builds everything into out/; nothing else needs packaging
 # (php/node/git are the user's own, launched from PATH at runtime).
+# Whisper (transformers.js) is a devDependency bundled into out/ by vite, so
+# its heavy native transitive modules never reach here — these excludes are a
+# safety net in case a runner hoists them (onnxruntime-node's identical dylib
+# across arches breaks the macOS universal build).
 files:
   - out/**/*
   - package.json
+  - '!node_modules/onnxruntime-node/**'
+  - '!node_modules/sharp/**'
+  - '!node_modules/@img/**'
 
 # Clean, predictable names: studio.exe / studio.dmg / studio.deb — matches the
 # release workflow's upload globs and the S3 download URLs.
