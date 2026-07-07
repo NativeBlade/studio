@@ -198,11 +198,16 @@ app.whenReady().then(async () => {
                 userAgent: device.ua,
                 platform: device.platform,
             });
-            // Touch *capabilities* (navigator.maxTouchPoints, ontouchstart,
-            // pointer:coarse) without setEmitTouchEventsForMouse — that one
-            // paints a fingertip-ring cursor over the preview, which reads as
-            // "my mouse changed" and isn't worth it here.
+            // Touch capabilities (navigator.maxTouchPoints, ontouchstart,
+            // pointer:coarse) so the app detects a touch device.
             await wc.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+            // Mouse-as-finger: makes drag scroll, swipe and tap work with the
+            // mouse (default on). It also paints a small touch-point cursor —
+            // the preview's Touch toggle turns both off together.
+            await wc.debugger.sendCommand('Emulation.setEmitTouchEventsForMouse', {
+                enabled: device.emitTouch !== false,
+                configuration: 'mobile',
+            });
             return { ok: true };
         } catch (e) {
             return { ok: false, error: String(e?.message ?? e) };

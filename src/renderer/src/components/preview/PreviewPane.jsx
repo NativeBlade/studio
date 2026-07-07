@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import { Paintbrush, QrCode, RotateCcw, RotateCw, Share2, Smartphone } from 'lucide-react';
+import { Hand, Paintbrush, QrCode, RotateCcw, RotateCw, Share2, Smartphone } from 'lucide-react';
 import { useChatStore } from '../../stores/chat.js';
 import { usePreviewStore } from '../../stores/preview.js';
 import { useConsoleStore } from '../../stores/console.js';
@@ -23,6 +23,7 @@ export function PreviewPane({ app, preview }) {
     const available = devicesForPlatforms(app.platforms);
     const [deviceId, setDeviceId] = useState(available[0].id);
     const [landscape, setLandscape] = useState(false);
+    const [touch, setTouch] = useState(true); // mouse acts as finger (drag-scroll/swipe/tap)
     const [bust, setBust] = useState(0);
     const [qrOpen, setQrOpen] = useState(false);
     const [shareOpen, setShareOpen] = useState(false);
@@ -36,8 +37,8 @@ export function PreviewPane({ app, preview }) {
         if (!busy) setBust((b) => b + 1);
     }, [busy]);
 
-    const device = resolveDevice(deviceId, landscape);
-    const canRotate = ready && !device.desktop;
+    const device = { ...resolveDevice(deviceId, landscape), emitTouch: touch };
+    const mobileControls = ready && !device.desktop;
 
     return (
         <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', borderRadius: 20, overflow: 'hidden', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)' }}>
@@ -47,9 +48,14 @@ export function PreviewPane({ app, preview }) {
                         {d.label}
                     </button>
                 ))}
-                {canRotate && (
+                {mobileControls && (
                     <button onClick={() => setLandscape((v) => !v)} className="nb-btn" title={landscape ? 'Portrait' : 'Landscape'} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 9, background: landscape ? 'rgba(220,38,38,0.14)' : 'rgba(255,255,255,0.04)', border: `1px solid ${landscape ? 'rgba(255,77,77,0.4)' : 'rgba(255,255,255,0.1)'}`, color: landscape ? '#fff' : '#9aa0a8' }}>
                         {landscape ? <RotateCcw size={13} /> : <RotateCw size={13} />}
+                    </button>
+                )}
+                {mobileControls && (
+                    <button onClick={() => setTouch((v) => !v)} className="nb-btn" title={touch ? 'Touch on: mouse drags to scroll/swipe (shows a touch dot). Click to turn off.' : 'Touch off: normal cursor, use the wheel to scroll. Click to turn on.'} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 9, background: touch ? 'rgba(220,38,38,0.14)' : 'rgba(255,255,255,0.04)', border: `1px solid ${touch ? 'rgba(255,77,77,0.4)' : 'rgba(255,255,255,0.1)'}`, color: touch ? '#fff' : '#9aa0a8' }}>
+                        <Hand size={13} />
                     </button>
                 )}
                 <ServerBadge status={status} />
@@ -186,7 +192,7 @@ function DeviceViewport({ appId, src, device }) {
     }, [device.desktop]);
 
     // Live-update emulation when the device or orientation changes (no reload).
-    useEffect(() => { apply(); }, [device.id, device.landscape]);
+    useEffect(() => { apply(); }, [device.id, device.landscape, device.emitTouch]);
 
     // Desktop: no phone frame, no emulation — the webview fills the pane.
     if (device.desktop) {
