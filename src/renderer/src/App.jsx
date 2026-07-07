@@ -23,24 +23,19 @@ export default function App() {
     const close = useAppsStore((s) => s.close);
     const handleEvent = useChatStore((s) => s.handleEvent);
     const [setupOpen, setSetupOpen] = useState(false);
-    const [leaving, setLeaving] = useState(false);
     const [updateReady, setUpdateReady] = useState(null); // version string when a build is ready
 
     useEffect(() => window.studio.updates.onStatus((s) => {
         if (s.status === 'ready') setUpdateReady(s.version);
     }), []);
 
-    // Back holds until the dev server (and any tunnel) is truly dead, so the
-    // app's files aren't locked if the user deletes it right after.
-    const leave = async () => {
-        if (!app) return close();
-        setLeaving(true);
-        try {
-            await window.studio.preview.stop(app.id); // tunnel stays up for reuse
-        } finally {
-            setLeaving(false);
-            close();
-        }
+    // Back: clear the device emulation while the webview is still alive (this
+    // reliably kills the touch cursor — doing it on unmount races the webview
+    // teardown), then close. The dev server dies in the background; deleting an
+    // app awaits its own stop, so files aren't locked.
+    const back = async () => {
+        if (app) await window.studio.preview.resetEmulation(app.id);
+        close();
     };
 
     // Silent doctor on boot + one global subscription to agent events
@@ -70,7 +65,7 @@ export default function App() {
                     <button onClick={() => setUpdateReady(null)} className="nb-btn" style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>Later</button>
                 </div>
             )}
-            <TopBar app={engineOk ? app : null} onBack={leave} leaving={leaving} onOpenSetup={() => setSetupOpen(true)} />
+            <TopBar app={engineOk ? app : null} onBack={back} onOpenSetup={() => setSetupOpen(true)} />
             <div style={{ minHeight: 0, flex: 1 }}>
                 {!engineOk ? <SetupScreen /> : app ? <Workspace app={app} /> : <Launcher />}
             </div>

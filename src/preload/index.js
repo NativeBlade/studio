@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('studio', {
         stop: (appId) => ipcRenderer.invoke('preview:stop', appId),
         emulate: (payload) => ipcRenderer.invoke('preview:emulate', payload),
         stopEmulate: (webContentsId) => ipcRenderer.invoke('preview:stopEmulate', webContentsId),
+        resetEmulation: (appId) => ipcRenderer.invoke('preview:resetEmulation', appId),
         rebuild: (payload) => ipcRenderer.invoke('preview:rebuild', payload),
     },
     tunnel: {

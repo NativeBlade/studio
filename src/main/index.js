@@ -17,6 +17,9 @@ let mainWindow = null;
 /** One live AI CLI session per app id (rebuilt if the user switches engine/model). */
 const sessions = new Map(); // appId -> { key, session }
 
+/** appId -> the preview webview's webContentsId, so Back can reset its emulation. */
+const emulatedWc = new Map();
+
 /** Cached toolchain report — the renderer only needs it once per boot; the AI gets it via CLAUDE.md. */
 let envPromise = null;
 const getEnv = (fresh = false) => {
@@ -99,7 +102,7 @@ app.whenReady().then(async () => {
     ipcMain.handle('apps:delete', async (_e, { appId, path }) => {
         sessions.get(appId)?.session.stop();
         sessions.delete(appId);
-        stopPreview(appId);
+        await stopPreview(appId); // wait for the dev server to release file locks
         stopTunnel(appId); // a deleted app shouldn't stay publicly shared
         if (!path) return { ok: true };
         // Safety: only ever delete inside the Studio's own apps root.
@@ -178,9 +181,10 @@ app.whenReady().then(async () => {
     // Device emulation for the preview <webview> — the same stack Chrome
     // DevTools' device toolbar uses (metrics + DPR + mobile + UA + touch),
     // driven over CDP so nothing in the previewed app has to cooperate.
-    ipcMain.handle('preview:emulate', async (_e, { webContentsId, device }) => {
+    ipcMain.handle('preview:emulate', async (event, { webContentsId, device, appId }) => {
         const wc = webContents.fromId(webContentsId);
         if (!wc || wc.isDestroyed()) return { ok: false };
+        if (appId != null) emulatedWc.set(appId, webContentsId); // so Back can reset it while the webview is alive
         try {
             if (!wc.debugger.isAttached()) wc.debugger.attach('1.3');
             const w = device.landscape ? device.height : device.width;
@@ -221,9 +225,28 @@ app.whenReady().then(async () => {
     ipcMain.handle('tunnel:stop', (_e, appId) => stopTunnel(appId));
     ipcMain.handle('tunnel:current', (_e, appId) => currentTunnel(appId));
 
-    ipcMain.handle('preview:stopEmulate', (_e, webContentsId) => {
-        const wc = webContents.fromId(webContentsId);
-        try { if (wc && !wc.isDestroyed() && wc.debugger.isAttached()) wc.debugger.detach(); } catch { /* already gone */ }
+    // Explicitly undo the emulation before detaching — a bare detach on a
+    // webContents that's about to go away can leave the touch cursor stuck on
+    // the host window. Reset touch/metrics first, then detach.
+    async function resetEmulation(wc) {
+        if (!wc || wc.isDestroyed() || !wc.debugger.isAttached()) return;
+        try {
+            await wc.debugger.sendCommand('Emulation.setEmitTouchEventsForMouse', { enabled: false, configuration: 'desktop' });
+            await wc.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: false });
+            await wc.debugger.sendCommand('Emulation.clearDeviceMetricsOverride');
+        } catch { /* webContents may already be tearing down */ }
+        try { wc.debugger.detach(); } catch { /* already gone */ }
+    }
+
+    ipcMain.handle('preview:stopEmulate', (_e, webContentsId) => resetEmulation(webContents.fromId(webContentsId)));
+
+    // Called on Back, while the webview is still alive — this is the reliable
+    // path that actually clears the touch cursor (unmount races the teardown).
+    ipcMain.handle('preview:resetEmulation', (_e, appId) => {
+        const id = emulatedWc.get(appId);
+        if (id == null) return;
+        emulatedWc.delete(appId);
+        return resetEmulation(webContents.fromId(id));
     });
 
     // Git checkpoints: the AI commits each round, so HEAD after a turn is a

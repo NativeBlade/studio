@@ -1,11 +1,11 @@
-import { ChevronLeft, Cpu, Loader, Mic } from 'lucide-react';
+import { ChevronLeft, Cpu, Mic } from 'lucide-react';
 import { useEnvStore } from '../../stores/env.js';
 import { useSettingsStore } from '../../stores/settings.js';
 import { AUDIO_LANGUAGES } from '../../lib/languages.js';
 import logo from '../../assets/nb-logo.png';
 
 /** Studio top bar — back (when inside an app) · logo · Studio · voice lang · AI picker. */
-export function TopBar({ app, onBack, leaving, onOpenSetup }) {
+export function TopBar({ app, onBack, onOpenSetup }) {
     const engines = useEnvStore((s) => s.engines);
     const engine = useSettingsStore((s) => s.engine);
     const model = useSettingsStore((s) => s.model);
@@ -17,8 +17,8 @@ export function TopBar({ app, onBack, leaving, onOpenSetup }) {
     return (
         <header style={{ display: 'flex', flexShrink: 0, alignItems: 'center', gap: 12, padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(9,9,12,0.7)', backdropFilter: 'blur(20px) saturate(150%)' }}>
             {app && (
-                <button onClick={onBack} disabled={leaving} className="nb-btn" title={leaving ? 'Closing the preview…' : 'Back to your apps'} style={{ display: 'flex', alignItems: 'center', gap: 4, borderRadius: 10, padding: '8px 12px 8px 6px', fontSize: 12.5, fontWeight: 500, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', color: '#c2c7cf' }}>
-                    {leaving ? <><Loader size={14} className="nb-spin" />Closing…</> : <><ChevronLeft size={16} />Back</>}
+                <button onClick={onBack} className="nb-btn" title="Back to your apps" style={{ display: 'flex', alignItems: 'center', gap: 4, borderRadius: 10, padding: '8px 12px 8px 6px', fontSize: 12.5, fontWeight: 500, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', color: '#c2c7cf' }}>
+                    <ChevronLeft size={16} />Back
                 </button>
             )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

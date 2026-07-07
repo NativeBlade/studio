@@ -1,12 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import { Hand, Paintbrush, QrCode, RotateCcw, RotateCw, Share2, Smartphone } from 'lucide-react';
+import { Hand, Paintbrush, QrCode, Rocket, RotateCcw, RotateCw, Share2, Smartphone } from 'lucide-react';
 import { useChatStore } from '../../stores/chat.js';
 import { usePreviewStore } from '../../stores/preview.js';
 import { useConsoleStore } from '../../stores/console.js';
 import { devicesForPlatforms, resolveDevice, safeAreaCss } from '../../lib/devices.js';
 import { Modal } from '../ui/Modal.jsx';
 import { ShareModal } from './ShareModal.jsx';
+import { PublishModal } from './PublishModal.jsx';
 import { AppStoreLinks } from './AppStoreLinks.jsx';
 import logo from '../../assets/nb-logo.png';
 
@@ -23,10 +24,14 @@ export function PreviewPane({ app, preview }) {
     const available = devicesForPlatforms(app.platforms);
     const [deviceId, setDeviceId] = useState(available[0].id);
     const [landscape, setLandscape] = useState(false);
-    const [touch, setTouch] = useState(true); // mouse acts as finger (drag-scroll/swipe/tap)
+    // Mouse-as-finger off by default: the touch cursor can bleed onto the
+    // Studio window. Wheel scrolling works without it; the 🖐️ toggle turns on
+    // full drag-scroll/swipe/tap when a screen needs it.
+    const [touch, setTouch] = useState(false);
     const [bust, setBust] = useState(0);
     const [qrOpen, setQrOpen] = useState(false);
     const [shareOpen, setShareOpen] = useState(false);
+    const [publishOpen, setPublishOpen] = useState(false);
     const busy = useChatStore((s) => s.busy[app.id] ?? false);
     const nonce = usePreviewStore((s) => s.nonce[app.id] ?? 0); // bumped on checkpoint restore
     const src = url ? `${url}?nb=${bust}-${nonce}` : null;
@@ -71,6 +76,9 @@ export function PreviewPane({ app, preview }) {
                             <Share2 size={13} />Share
                         </button>
                         <button onClick={() => window.studio.preview.rebuild({ appId: app.id, cwd: app.path })} className="nb-btn" title="Refresh — recompile and reload the app" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 9, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#9aa0a8' }}><Paintbrush size={13} /></button>
+                        <button onClick={() => setPublishOpen(true)} className="nb-btn" title="Publish to the App Store and Google Play" style={{ display: 'flex', alignItems: 'center', gap: 6, height: 30, borderRadius: 9, padding: '0 11px', fontSize: 12, fontWeight: 600, color: '#fff', border: 'none', background: 'linear-gradient(180deg,#ff9d2e,#f97316)' }}>
+                            <Rocket size={13} />Publish
+                        </button>
                     </>
                 )}
             </div>
@@ -97,6 +105,7 @@ export function PreviewPane({ app, preview }) {
 
             <QrModal open={qrOpen} onClose={() => setQrOpen(false)} lanUrl={lanUrl} appName={app.name} />
             <ShareModal open={shareOpen} onClose={() => setShareOpen(false)} app={app} targetUrl={url} />
+            <PublishModal open={publishOpen} onClose={() => setPublishOpen(false)} />
         </div>
     );
 }
@@ -141,7 +150,7 @@ function DeviceViewport({ appId, src, device }) {
                 await window.studio.preview.stopEmulate(wcIdRef.current);
                 return;
             }
-            await window.studio.preview.emulate({ webContentsId: wcIdRef.current, device });
+            await window.studio.preview.emulate({ webContentsId: wcIdRef.current, device, appId });
             cssKeyRef.current = await wv.insertCSS(safeAreaCss(device));
         } catch { /* page navigating — dom-ready will re-apply */ }
     };
