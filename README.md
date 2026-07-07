@@ -4,6 +4,35 @@ Build real mobile and desktop apps just by talking to an AI. You describe what y
 
 You do not need to know how to code.
 
+## ⬇️ Download
+
+Get the latest NativeBlade Studio for your system:
+
+* **Windows** 👉 [Download studio.exe](https://nativeblade-studio-releases.s3.us-east-1.amazonaws.com/windows/studio.exe)
+* **macOS** 👉 [Download studio.dmg](https://nativeblade-studio-releases.s3.us-east-1.amazonaws.com/macos/studio.dmg)
+
+On Windows just run the installer. On macOS open the .dmg and drag the app to Applications. The app updates itself from then on, so you only download once.
+
+### Linux
+
+Download the package for your distribution and run the install command.
+
+**Debian or Ubuntu** (.deb):
+
+[Download studio.deb](https://nativeblade-studio-releases.s3.us-east-1.amazonaws.com/linux/studio.deb)
+
+```bash
+sudo dpkg -i studio.deb
+```
+
+**Fedora, RHEL or openSUSE** (.rpm):
+
+[Download studio.rpm](https://nativeblade-studio-releases.s3.us-east-1.amazonaws.com/linux/studio.rpm)
+
+```bash
+sudo rpm -i studio.rpm
+```
+
 ## What you need first
 
 You need the Claude Code app installed and signed in. It is the AI that builds your apps, and it runs on your own Claude subscription, so there are no API keys and nothing extra to pay us.
