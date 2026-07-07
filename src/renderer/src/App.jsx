@@ -24,6 +24,11 @@ export default function App() {
     const handleEvent = useChatStore((s) => s.handleEvent);
     const [setupOpen, setSetupOpen] = useState(false);
     const [leaving, setLeaving] = useState(false);
+    const [updateReady, setUpdateReady] = useState(null); // version string when a build is ready
+
+    useEffect(() => window.studio.updates.onStatus((s) => {
+        if (s.status === 'ready') setUpdateReady(s.version);
+    }), []);
 
     // Back holds until the dev server (and any tunnel) is truly dead, so the
     // app's files aren't locked if the user deletes it right after.
@@ -58,6 +63,13 @@ export default function App() {
 
     return (
         <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            {updateReady && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '7px 14px', fontSize: 12.5, color: '#fff', background: 'linear-gradient(180deg,#ff5151,#d31f1f)' }}>
+                    <span>A new version ({updateReady}) is ready.</span>
+                    <button onClick={() => window.studio.updates.restart()} className="nb-btn" style={{ borderRadius: 8, padding: '4px 12px', fontSize: 12, fontWeight: 600, color: '#d31f1f', background: '#fff', border: 'none' }}>Restart to update</button>
+                    <button onClick={() => setUpdateReady(null)} className="nb-btn" style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>Later</button>
+                </div>
+            )}
             <TopBar app={engineOk ? app : null} onBack={leave} leaving={leaving} onOpenSetup={() => setSetupOpen(true)} />
             <div style={{ minHeight: 0, flex: 1 }}>
                 {!engineOk ? <SetupScreen /> : app ? <Workspace app={app} /> : <Launcher />}

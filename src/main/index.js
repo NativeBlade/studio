@@ -9,6 +9,10 @@ import { startPreview, stopPreview, rebuildPreview } from './services/dev-server
 import { tunnelStatus, tunnelInstall, startTunnel, stopTunnel, currentTunnel } from './services/tunnel.js';
 import { killAllSync } from './services/child-registry.js';
 import { fixPath } from './services/fix-path.js';
+import { setupUpdater } from './services/updater.js';
+
+/** The main window, so the updater can push status to the renderer. */
+let mainWindow = null;
 
 /** One live AI CLI session per app id (rebuilt if the user switches engine/model). */
 const sessions = new Map(); // appId -> { key, session }
@@ -56,6 +60,8 @@ function createWindow() {
         win.loadFile(join(import.meta.dirname, '../renderer/index.html'));
     }
 
+    mainWindow = win;
+    win.on('closed', () => { if (mainWindow === win) mainWindow = null; });
     return win;
 }
 
@@ -232,6 +238,7 @@ app.whenReady().then(async () => {
     }));
 
     createWindow();
+    setupUpdater(() => mainWindow);
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) createWindow();

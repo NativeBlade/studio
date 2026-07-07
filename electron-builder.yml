@@ -1,0 +1,65 @@
+appId: dev.nativeblade.studio
+productName: NativeBlade Studio
+
+directories:
+  output: release
+  buildResources: build
+
+# electron-vite builds everything into out/; nothing else needs packaging
+# (php/node/git are the user's own, launched from PATH at runtime).
+files:
+  - out/**/*
+  - package.json
+
+# Clean, predictable names: studio.exe / studio.dmg / studio.deb — matches the
+# release workflow's upload globs and the S3 download URLs.
+artifactName: studio.${ext}
+
+win:
+  icon: build/icons/icon.ico
+  target:
+    - nsis
+  signtoolOptions:
+    sign: ./build/sign.cjs
+    signingHashAlgorithms:
+      - sha256
+  publish:
+    provider: generic
+    url: https://nativeblade-studio-releases.s3.us-east-1.amazonaws.com/windows
+
+nsis:
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
+  allowElevation: true
+  include: build/installer.nsh
+
+mac:
+  icon: build/icons/icon.icns
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch: [universal]
+    - target: zip
+      arch: [universal]
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: true
+  publish:
+    provider: generic
+    url: https://nativeblade-studio-releases.s3.us-east-1.amazonaws.com/macos
+
+linux:
+  icon: build/icons
+  category: Development
+  maintainer: NativeBlade <contact@nativeblade.dev>
+  target:
+    - deb
+    - rpm
+  publish:
+    provider: generic
+    url: https://nativeblade-studio-releases.s3.us-east-1.amazonaws.com/linux

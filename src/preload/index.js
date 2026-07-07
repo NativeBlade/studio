@@ -44,4 +44,12 @@ contextBridge.exposeInMainWorld('studio', {
         head: (cwd) => ipcRenderer.invoke('git:head', cwd),
         reset: (payload) => ipcRenderer.invoke('git:reset', payload),
     },
+    updates: {
+        onStatus: (cb) => {
+            const handler = (_e, payload) => cb(payload);
+            ipcRenderer.on('update:status', handler);
+            return () => ipcRenderer.removeListener('update:status', handler);
+        },
+        restart: () => ipcRenderer.invoke('update:restart'),
+    },
 });
