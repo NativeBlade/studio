@@ -15,6 +15,28 @@ const tt = (key, vars) => translate(useSettingsStore.getState().uiLang ?? 'en', 
 
 let nextId = 1;
 
+// The chain-of-thought items (the "Build details" accordion) are the bulk of a
+// long history and the least useful once a turn is old. We keep them in full
+// only for the most recent PRUNE_KEEP groups; older groups drop their items but
+// keep the count + timing, so the header still reads "Build details · N · 1m 3s".
+const PRUNE_KEEP = 8;
+
+function pruneGroups(list) {
+    const groupIdxs = [];
+    for (let i = 0; i < list.length; i++) if (list[i].role === 'group') groupIdxs.push(i);
+    if (groupIdxs.length <= PRUNE_KEEP) return list;
+    const keepFrom = groupIdxs[groupIdxs.length - PRUNE_KEEP];
+    let changed = false;
+    const out = list.map((m, i) => {
+        if (m.role === 'group' && i < keepFrom && m.items?.length) {
+            changed = true;
+            return { ...m, items: [], updates: m.updates ?? m.items.length };
+        }
+        return m;
+    });
+    return changed ? out : list;
+}
+
 // Git HEAD captured when a turn starts, per app — a checkpoint is recorded
 // only if the AI actually committed something new by the time it's done.
 const turnBase = {};
@@ -32,11 +54,13 @@ const pendingNote = {};
 function rehydrate(persisted) {
     const byApp = {};
     for (const [appId, list] of Object.entries(persisted?.byApp ?? {})) {
-        byApp[appId] = (list ?? []).map((m) => {
+        const mapped = (list ?? []).map((m) => {
             if (m.id >= nextId) nextId = m.id + 1;
             for (const it of m.items ?? []) if (it.id >= nextId) nextId = it.id + 1;
             return m.role === 'group' && !m.endedAt ? { ...m, endedAt: m.startedAt } : m;
         });
+        // Bound an already-large history the first time it loads.
+        byApp[appId] = pruneGroups(mapped);
     }
     return byApp;
 }
@@ -189,7 +213,9 @@ export const useChatStore = create(persist((set, get) => ({
                     ? list.map((m) => (m.role === 'plan' ? { ...m, approved: false } : m))
                     : list;
 
-                return { byApp: { ...s.byApp, [appId]: reopened }, busy: { ...s.busy, [appId]: false }, mode: { ...s.mode, [appId]: null } };
+                // Turn just ended: trim the verbose detail of older turns so the
+                // history stays bounded no matter how long the app is built for.
+                return { byApp: { ...s.byApp, [appId]: pruneGroups(reopened) }, busy: { ...s.busy, [appId]: false }, mode: { ...s.mode, [appId]: null } };
             }
 
             return { byApp: { ...s.byApp, [appId]: list } };

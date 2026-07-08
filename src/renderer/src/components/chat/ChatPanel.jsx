@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useChatStore } from '../../stores/chat.js';
 import { MessageBubble } from './MessageBubble.jsx';
 import { ProgressGroup } from './ProgressGroup.jsx';
@@ -9,6 +9,7 @@ import { Composer } from './Composer.jsx';
 import { useT } from '../../lib/i18n.js';
 
 const EMPTY = []; // stable reference — a fresh [] per render makes zustand re-render forever
+const WINDOW = 60; // how many recent messages to render before "load earlier"
 
 /** The conversation with the AI for one app: messages, chain-of-thought groups, plan wizard, input. */
 export function ChatPanel({ app }) {
@@ -23,11 +24,18 @@ export function ChatPanel({ app }) {
     const resolveSecret = useChatStore((s) => s.resolveSecret);
     const scrollRef = useRef(null);
 
+    // Only render the most recent WINDOW messages so an app built for months
+    // doesn't mount thousands of bubbles at once. "Load earlier" reveals more.
+    const [visible, setVisible] = useState(WINDOW);
+    useEffect(() => { setVisible(WINDOW); }, [app.id]); // fresh window per app
+
     useEffect(() => {
         if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }, [messages]);
 
     const lastGroup = [...messages].reverse().find((m) => m.role === 'group');
+    const hidden = Math.max(0, messages.length - visible);
+    const shown = hidden ? messages.slice(-visible) : messages;
 
     return (
         <div style={{ height: '100%', display: 'flex', flexDirection: 'column', borderRadius: 20, overflow: 'hidden', background: 'linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))', border: '1px solid rgba(255,255,255,0.09)' }}>
@@ -37,7 +45,12 @@ export function ChatPanel({ app }) {
                         {t('chat.emptyPre')}<strong style={{ color: '#9aa0a8' }}>{app.name}</strong>{t('chat.emptyPost')}
                     </div>
                 )}
-                {messages.map((m) => {
+                {hidden > 0 && (
+                    <button onClick={() => setVisible((v) => v + WINDOW)} className="nb-btn" style={{ alignSelf: 'center', borderRadius: 99, padding: '5px 14px', fontSize: 11.5, fontWeight: 500, color: '#9aa0a8', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)' }}>
+                        {t('chat.loadEarlier')} ({hidden})
+                    </button>
+                )}
+                {shown.map((m) => {
                     if (m.role === 'group') return <ProgressGroup key={m.id} group={m} live={busy && m === lastGroup && !m.endedAt} onStop={() => stop(app.id)} />;
                     if (m.role === 'plan') return <PlanWizard key={m.id} plan={m.plan} approved={m.approved} onApprove={(steps, answers) => approvePlan(app, steps, answers)} onReject={(feedback) => rejectPlan(app, feedback)} />;
                     if (m.role === 'checkpoint') return <Checkpoint key={m.id} cp={m} onRestore={() => restore(app, m)} />;

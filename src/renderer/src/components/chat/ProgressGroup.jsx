@@ -21,6 +21,9 @@ export function ProgressGroup({ group, live, onStop }) {
     const [open, setOpen] = useState(false);
     const items = group.items;
     const latest = items[items.length - 1];
+    // Pruned older groups keep their original update count in `updates` even
+    // though the items were dropped to keep the history light.
+    const count = group.updates ?? items.length;
 
     // Elapsed time: ticks every second while live, freezes at total once done.
     const [nowTs, setNowTs] = useState(Date.now());
@@ -40,7 +43,7 @@ export function ProgressGroup({ group, live, onStop }) {
                         ? <Loader size={13} className="nb-spin" style={{ color: '#ffce7a', flexShrink: 0 }} />
                         : <History size={13} style={{ color: '#9aa0a8', flexShrink: 0 }} />}
                     <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 500, color: '#9aa0a8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {live ? t('progress.working') : t('progress.details')}{items.length > 0 && <> · {items.length} {items.length === 1 ? t('progress.update') : t('progress.updates')}</>}
+                        {live ? t('progress.working') : t('progress.details')}{count > 0 && <> · {count} {count === 1 ? t('progress.update') : t('progress.updates')}</>}
                         <span style={{ color: live ? '#ffce7a' : '#6b7280' }}> · {dur}</span>
                     </span>
                     {items.length > 0 && <ChevronDown size={13} style={{ color: '#6b7280', flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />}
