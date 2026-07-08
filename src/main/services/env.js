@@ -4,12 +4,12 @@ import os from 'os';
 /**
  * Hidden environment doctor: detects the OS, the NativeBlade toolchain
  * (PHP >= 8.3, Composer, Node >= 20, git) and which AI CLIs are installed
- * (Claude Code, Codex, Gemini), with per-OS install guidance for whatever is
+ * (Claude Code, Codex), with per-OS install guidance for whatever is
  * missing. The user never sees this as a screen — the toolchain report goes
  * to the AI via the context files, and only the AI engines surface in setup.
  */
 
-const MIN = { php: [8, 3], node: [20, 0], composer: [2, 0], git: [2, 0], claude: [1, 0], codex: [0, 1], gemini: [0, 1] };
+const MIN = { php: [8, 3], node: [20, 0], composer: [2, 0], git: [2, 0], claude: [1, 0], codex: [0, 1] };
 
 function run(cmd, args) {
     return new Promise((resolve) => {
@@ -55,21 +55,19 @@ const HINTS = {
 const AI_HINTS = {
     claude: { label: 'Install Claude Code', cmd: 'npm install -g @anthropic-ai/claude-code', url: 'https://claude.com/claude-code' },
     codex: { label: 'Install Codex CLI', cmd: 'npm install -g @openai/codex', url: 'https://developers.openai.com/codex/cli' },
-    gemini: { label: 'Install Gemini CLI', cmd: 'npm install -g @google/gemini-cli', url: 'https://github.com/google-gemini/gemini-cli' },
 };
 
 export async function checkEnvironment() {
     const platform = process.platform; // win32 | darwin | linux
     const hints = HINTS[platform] ?? HINTS.linux;
 
-    const [php, composer, node, git, claude, codex, gemini] = await Promise.all([
+    const [php, composer, node, git, claude, codex] = await Promise.all([
         run('php', ['-v']),
         run('composer', ['--version']),
         run('node', ['-v']),
         run('git', ['--version']),
         run('claude', ['--version']),
         run('codex', ['--version']),
-        run('gemini', ['--version']),
     ]);
 
     const checks = [
@@ -79,7 +77,6 @@ export async function checkEnvironment() {
         { id: 'git', name: 'Git', version: parseVersion(git, /git version (\d+\.\d+[\.\d]*)/), required: '>= 2 (powers rollback checkpoints)', hint: hints.git },
         { id: 'claude', name: 'Claude Code', version: parseVersion(claude, /(\d+\.\d+\.\d+)/), required: 'any recent version', hint: AI_HINTS.claude },
         { id: 'codex', name: 'Codex CLI', version: parseVersion(codex, /(\d+\.\d+\.\d+)/), required: 'any recent version', hint: AI_HINTS.codex },
-        { id: 'gemini', name: 'Gemini CLI', version: parseVersion(gemini, /(\d+\.\d+\.\d+)/), required: 'any recent version', hint: AI_HINTS.gemini },
     ].map((c) => ({ ...c, ok: meets(c.version, MIN[c.id]) }));
 
     return {

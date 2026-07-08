@@ -44,7 +44,7 @@ export async function scaffoldApp({ dir, appInfo, env, emit }) {
     if (!existsSync(join(dir, 'src-tauri'))) {
         if (!existsSync(join(dir, 'artisan'))) {
             // create-project requires an empty folder; the context files are ours to remove.
-            for (const f of ['CLAUDE.md', 'AGENTS.md', 'GEMINI.md']) {
+            for (const f of ['CLAUDE.md', 'AGENTS.md', '.mcp.json']) {
                 const p = join(dir, f);
                 if (existsSync(p)) rmSync(p);
             }

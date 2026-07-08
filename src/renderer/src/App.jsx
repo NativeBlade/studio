@@ -17,8 +17,10 @@ import { Workspace } from './components/chat/Workspace.jsx';
  */
 export default function App() {
     const result = useEnvStore((s) => s.result);
+    const engines = useEnvStore((s) => s.engines);
     const refreshEnv = useEnvStore((s) => s.refresh);
     const engine = useSettingsStore((s) => s.engine);
+    const setEngine = useSettingsStore((s) => s.setEngine);
     const app = useAppsStore((s) => s.apps.find((a) => a.id === s.current));
     const close = useAppsStore((s) => s.close);
     const handleEvent = useChatStore((s) => s.handleEvent);
@@ -28,6 +30,12 @@ export default function App() {
     useEffect(() => window.studio.updates.onStatus((s) => {
         if (s.status === 'ready') setUpdateReady(s.version);
     }), []);
+
+    // A previously-selected engine may no longer exist (e.g. Gemini removed) —
+    // fall back to Claude so the setup screen isn't stuck on a dead option.
+    useEffect(() => {
+        if (engines && !engines[engine]) setEngine('claude');
+    }, [engines, engine, setEngine]);
 
     // Back: clear the device emulation while the webview is still alive (this
     // reliably kills the touch cursor — doing it on unmount races the webview

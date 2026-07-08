@@ -1,7 +1,29 @@
 import { spawn } from 'child_process';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
+import { homedir } from 'os';
 import { register, killTree } from './child-registry.js';
+
+const MCP_URL = 'https://mcp.nativeblade.dev';
+
+/**
+ * Claude Code reads the project's .mcp.json, but Codex does NOT — it reads
+ * ~/.codex/config.toml (project-level .codex/config.toml needs a "trusted
+ * project", which headless runs don't get). So register the NativeBlade MCP in
+ * Codex's global config once, idempotently — the streamable-HTTP way Codex
+ * expects (`codex mcp add nativeblade --url ...` writes the same block).
+ */
+function ensureCodexMcp() {
+    try {
+        const dir = join(homedir(), '.codex');
+        const file = join(dir, 'config.toml');
+        const existing = existsSync(file) ? readFileSync(file, 'utf-8') : '';
+        if (/\[mcp_servers\.nativeblade\]/.test(existing)) return; // already registered
+        mkdirSync(dir, { recursive: true });
+        const pad = existing && !existing.endsWith('\n') ? '\n' : '';
+        writeFileSync(file, `${existing}${pad}\n[mcp_servers.nativeblade]\nurl = "${MCP_URL}"\n`);
+    } catch { /* best-effort — Codex still works without the MCP */ }
+}
 
 /**
  * The AI engines: each drives a coding CLI the user already subscribes to —
@@ -29,20 +51,15 @@ export const ENGINES = {
         loginHint: 'run `codex login` in a terminal',
         models: [
             { id: null, label: 'Default (recommended)' },
-            { id: 'gpt-5.1-codex-max', label: 'GPT-5.1 Codex Max' },
-            { id: 'gpt-5.1-codex', label: 'GPT-5.1 Codex' },
+            { id: 'gpt-5.5', label: 'GPT-5.5 (frontier)' },
+            { id: 'gpt-5.4', label: 'GPT-5.4' },
+            { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini' },
         ],
     },
-    gemini: {
-        name: 'Gemini CLI',
-        vendor: 'Google',
-        loginHint: 'run `gemini` in a terminal once and sign in with Google',
-        models: [
-            { id: null, label: 'Default (recommended)' },
-            { id: 'gemini-3-pro-preview', label: 'Gemini 3 Pro' },
-            { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-        ],
-    },
+    // Gemini CLI is intentionally omitted: Google deprecated free "Gemini Code
+    // Assist for individuals" sign-in in the CLI (it now points people to the
+    // Antigravity suite), so the login no longer works for our BYO-subscription
+    // model. Re-add here if that changes.
 };
 
 // Claude Code needs these to run composer/npm/artisan and edit files without
@@ -51,7 +68,8 @@ export const ENGINES = {
 const CLAUDE_ALLOWED_TOOLS = 'Bash,Edit,Write,Read,Glob,Grep,WebFetch,WebSearch,TodoWrite,Task,NotebookEdit,mcp__nativeblade';
 
 export function createSession({ engine = 'claude', model = null, cwd, emit }) {
-    const make = { claude: claudeSession, codex: codexSession, gemini: geminiSession }[engine] ?? claudeSession;
+    if (engine === 'codex') ensureCodexMcp(); // Codex needs the MCP in its global config, not .mcp.json
+    const make = { claude: claudeSession, codex: codexSession }[engine] ?? claudeSession;
     return make({ model, cwd, emit });
 }
 
@@ -177,7 +195,12 @@ function codexSession({ model, cwd, emit }) {
         start(prompt, isStopping) {
             // `codex exec -` reads the prompt from stdin; --json emits JSONL
             // events; --full-auto = workspace-write sandbox without approvals.
-            const args = ['exec', '-', '--json', '--full-auto', '--skip-git-repo-check'];
+            // That sandbox blocks network by default, which cancels the MCP
+            // call (and any npm/composer the AI runs) — enable it explicitly.
+            const args = [
+                'exec', '-', '--json', '--full-auto', '--skip-git-repo-check',
+                '-c', 'sandbox_workspace_write.network_access=true',
+            ];
             if (model) args.push('-m', model);
             if (threadId) args.splice(1, 0, 'resume', threadId); // codex exec resume <id> -
 
@@ -200,42 +223,6 @@ function codexSession({ model, cwd, emit }) {
                 if (evt.type === 'turn.failed' && !isStopping()) emit({ type: 'error', message: evt.error?.message || 'The AI run failed.' });
             });
             void sawMessage;
-            return child;
-        },
-    };
-    return baseSession(runner);
-}
-
-/* ---------------------------------------------------------------- gemini */
-
-function geminiSession({ model, cwd, emit }) {
-    const runner = {
-        emit,
-        start(prompt) {
-            // v1 adapter: single JSON response, no live tool stream. --yolo
-            // auto-approves tool calls so headless runs don't hang.
-            const args = ['--yolo', '--output-format', 'json'];
-            if (model) args.push('-m', model);
-
-            const child = spawnCli('gemini', args, cwd);
-            child.stdin.write(prompt);
-            child.stdin.end();
-
-            emit({ type: 'tool', name: 'gemini', label: 'Working (Gemini reports at the end of each run)', detail: null });
-
-            let out = '';
-            child.stdout.on('data', (c) => { out += c.toString(); });
-            runner.onClose = () => {
-                try {
-                    const json = JSON.parse(out.slice(out.indexOf('{')));
-                    const text = json.response ?? json.text ?? '';
-                    if (text.trim()) emit({ type: 'text', text });
-                    emit({ type: 'done' });
-                } catch {
-                    if (out.trim()) { emit({ type: 'text', text: out.trim().slice(-4000) }); emit({ type: 'done' }); }
-                    else emit({ type: 'error', message: 'Gemini returned no output.' });
-                }
-            };
             return child;
         },
     };

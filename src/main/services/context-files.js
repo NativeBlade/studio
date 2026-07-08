@@ -1,13 +1,13 @@
-import { mkdirSync, writeFileSync } from 'fs';
+import { writeFileSync } from 'fs';
 import { join } from 'path';
 
 const MCP_URL = 'https://mcp.nativeblade.dev';
 
 /**
  * Writes the context file each AI CLI auto-loads from the app folder —
- * CLAUDE.md (Claude Code), AGENTS.md (Codex) and GEMINI.md (Gemini CLI) get
- * the same briefing. Written by the Studio right after the scaffold, so the
- * AI's job is only building features — never project setup.
+ * CLAUDE.md (Claude Code) and AGENTS.md (Codex) get the same briefing. Written
+ * by the Studio right after the scaffold, so the AI's job is only building
+ * features — never project setup.
  */
 export function writeContextFiles(dir, appInfo, env) {
     const platforms = appInfo.platforms?.length ? appInfo.platforms.join(' + ') : 'Mobile';
@@ -85,16 +85,12 @@ ${toolchain || '- (not checked)'}
 If a required tool is missing, tell the user what is missing, ask permission, and run the install command yourself. If they prefer to do it manually, guide them step by step.
 `;
 
-    for (const file of ['CLAUDE.md', 'AGENTS.md', 'GEMINI.md']) {
+    for (const file of ['CLAUDE.md', 'AGENTS.md']) {
         writeFileSync(join(dir, file), content);
     }
 
     // The remote NativeBlade MCP (docs/facade/project tools), in each CLI's format.
     writeFileSync(join(dir, '.mcp.json'), JSON.stringify({
         mcpServers: { nativeblade: { type: 'http', url: MCP_URL } },
-    }, null, 4));
-    mkdirSync(join(dir, '.gemini'), { recursive: true });
-    writeFileSync(join(dir, '.gemini', 'settings.json'), JSON.stringify({
-        mcpServers: { nativeblade: { httpUrl: MCP_URL } },
     }, null, 4));
 }
