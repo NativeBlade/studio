@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Plus, Sparkles, Smartphone, Monitor } from 'lucide-react';
 import { useAppsStore } from '../../stores/apps.js';
 import { useChatStore } from '../../stores/chat.js';
+import { useT } from '../../lib/i18n.js';
 
 const PLATFORMS = [['Mobile', Smartphone], ['Desktop', Monitor]];
 
@@ -10,6 +11,7 @@ export function NewAppForm() {
     const addApp = useAppsStore((s) => s.addApp);
     const open = useAppsStore((s) => s.open);
     const startPlan = useChatStore((s) => s.startPlan);
+    const t = useT();
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
     const [platforms, setPlatforms] = useState(['Mobile', 'Desktop']);
@@ -37,13 +39,13 @@ export function NewAppForm() {
     return (
         <div style={{ borderRadius: 20, padding: 24, background: 'linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.015))', border: '1px solid rgba(255,77,77,0.3)' }}>
             <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#ff8585' }}>
-                <Plus size={15} />New app
+                <Plus size={15} />{t('newapp.header')}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <input
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="App name (e.g. FitTrack)"
+                    placeholder={t('newapp.name')}
                     className="nb-field"
                     style={{ width: '100%', borderRadius: 12, padding: '12px 16px', fontSize: 14 }}
                 />
@@ -51,24 +53,24 @@ export function NewAppForm() {
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     rows={3}
-                    placeholder="Describe what it does, who it's for, and the key screens. The more detail, the better the first design."
+                    placeholder={t('newapp.desc')}
                     className="nb-field"
                     style={{ width: '100%', resize: 'none', borderRadius: 12, padding: '12px 16px', fontSize: 14 }}
                 />
                 <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 12, color: '#6b7280' }}>Build for:</span>
+                    <span style={{ fontSize: 12, color: '#6b7280' }}>{t('newapp.buildFor')}</span>
                     {PLATFORMS.map(([p, Icon]) => {
                         const on = platforms.includes(p);
                         return (
                             <button key={p} onClick={() => toggle(p)} className="nb-btn" style={{ display: 'flex', alignItems: 'center', gap: 6, borderRadius: 99, padding: '6px 14px', fontSize: 12, fontWeight: 500, background: on ? 'rgba(220,38,38,0.14)' : 'rgba(255,255,255,0.04)', border: `1px solid ${on ? 'rgba(255,77,77,0.4)' : 'rgba(255,255,255,0.12)'}`, color: on ? '#fff' : '#9aa0a8' }}>
-                                <Icon size={13} />{p}
+                                <Icon size={13} />{t(`newapp.${p}`)}
                             </button>
                         );
                     })}
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                     <button onClick={start} disabled={!name.trim() || !platforms.length} className="nb-btn" style={{ display: 'flex', alignItems: 'center', gap: 8, borderRadius: 12, padding: '12px 20px', fontSize: 14, fontWeight: 600, color: '#fff', border: 'none', background: 'linear-gradient(180deg,#ff5151,#d31f1f)', boxShadow: '0 10px 24px -8px rgba(220,38,38,0.6)' }}>
-                        <Sparkles size={16} />Start building
+                        <Sparkles size={16} />{t('newapp.start')}
                     </button>
                 </div>
             </div>

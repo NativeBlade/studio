@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('studio', {
         open: (url) => ipcRenderer.invoke('shell:open', url),
         reveal: (path) => ipcRenderer.invoke('shell:reveal', path),
     },
+    locale: () => ipcRenderer.invoke('app:locale'),
     apps: {
         ensureDir: (slug) => ipcRenderer.invoke('apps:ensure-dir', slug),
         delete: (payload) => ipcRenderer.invoke('apps:delete', payload),

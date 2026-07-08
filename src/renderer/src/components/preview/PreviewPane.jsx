@@ -4,6 +4,7 @@ import { Hand, Paintbrush, QrCode, Rocket, RotateCcw, RotateCw, Share2, Smartpho
 import { useChatStore } from '../../stores/chat.js';
 import { usePreviewStore } from '../../stores/preview.js';
 import { useConsoleStore } from '../../stores/console.js';
+import { useT } from '../../lib/i18n.js';
 import { devicesForPlatforms, resolveDevice, safeAreaCss } from '../../lib/devices.js';
 import { Modal } from '../ui/Modal.jsx';
 import { ShareModal } from './ShareModal.jsx';
@@ -34,6 +35,7 @@ export function PreviewPane({ app, preview }) {
     const [publishOpen, setPublishOpen] = useState(false);
     const busy = useChatStore((s) => s.busy[app.id] ?? false);
     const nonce = usePreviewStore((s) => s.nonce[app.id] ?? 0); // bumped on checkpoint restore
+    const t = useT();
     const src = url ? `${url}?nb=${bust}-${nonce}` : null;
 
     const building = busy && !app.built;
@@ -54,12 +56,12 @@ export function PreviewPane({ app, preview }) {
                     </button>
                 ))}
                 {mobileControls && (
-                    <button onClick={() => setLandscape((v) => !v)} className="nb-btn" title={landscape ? 'Portrait' : 'Landscape'} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 9, background: landscape ? 'rgba(220,38,38,0.14)' : 'rgba(255,255,255,0.04)', border: `1px solid ${landscape ? 'rgba(255,77,77,0.4)' : 'rgba(255,255,255,0.1)'}`, color: landscape ? '#fff' : '#9aa0a8' }}>
+                    <button onClick={() => setLandscape((v) => !v)} className="nb-btn" title={landscape ? t('preview.portrait') : t('preview.landscape')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 9, background: landscape ? 'rgba(220,38,38,0.14)' : 'rgba(255,255,255,0.04)', border: `1px solid ${landscape ? 'rgba(255,77,77,0.4)' : 'rgba(255,255,255,0.1)'}`, color: landscape ? '#fff' : '#9aa0a8' }}>
                         {landscape ? <RotateCcw size={13} /> : <RotateCw size={13} />}
                     </button>
                 )}
                 {mobileControls && (
-                    <button onClick={() => setTouch((v) => !v)} className="nb-btn" title={touch ? 'Touch on: mouse drags to scroll/swipe (shows a touch dot). Click to turn off.' : 'Touch off: normal cursor, use the wheel to scroll. Click to turn on.'} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 9, background: touch ? 'rgba(220,38,38,0.14)' : 'rgba(255,255,255,0.04)', border: `1px solid ${touch ? 'rgba(255,77,77,0.4)' : 'rgba(255,255,255,0.1)'}`, color: touch ? '#fff' : '#9aa0a8' }}>
+                    <button onClick={() => setTouch((v) => !v)} className="nb-btn" title={touch ? t('preview.touchOn') : t('preview.touchOff')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 9, background: touch ? 'rgba(220,38,38,0.14)' : 'rgba(255,255,255,0.04)', border: `1px solid ${touch ? 'rgba(255,77,77,0.4)' : 'rgba(255,255,255,0.1)'}`, color: touch ? '#fff' : '#9aa0a8' }}>
                         <Hand size={13} />
                     </button>
                 )}
@@ -68,16 +70,16 @@ export function PreviewPane({ app, preview }) {
                 {ready && (
                     <>
                         {lanUrl && (
-                            <button onClick={() => setQrOpen(true)} className="nb-btn" title="Open on your phone" style={{ display: 'flex', alignItems: 'center', gap: 6, height: 30, borderRadius: 9, padding: '0 10px', fontSize: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#9aa0a8' }}>
-                                <QrCode size={13} />Phone
+                            <button onClick={() => setQrOpen(true)} className="nb-btn" title={t('preview.phone')} style={{ display: 'flex', alignItems: 'center', gap: 6, height: 30, borderRadius: 9, padding: '0 10px', fontSize: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#9aa0a8' }}>
+                                <QrCode size={13} />{t('preview.phoneBtn')}
                             </button>
                         )}
-                        <button onClick={() => setShareOpen(true)} className="nb-btn" title="Share with someone (public link)" style={{ display: 'flex', alignItems: 'center', gap: 6, height: 30, borderRadius: 9, padding: '0 10px', fontSize: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#9aa0a8' }}>
-                            <Share2 size={13} />Share
+                        <button onClick={() => setShareOpen(true)} className="nb-btn" title={t('preview.share')} style={{ display: 'flex', alignItems: 'center', gap: 6, height: 30, borderRadius: 9, padding: '0 10px', fontSize: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#9aa0a8' }}>
+                            <Share2 size={13} />{t('preview.shareBtn')}
                         </button>
-                        <button onClick={() => window.studio.preview.rebuild({ appId: app.id, cwd: app.path })} className="nb-btn" title="Refresh — recompile and reload the app" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 9, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#9aa0a8' }}><Paintbrush size={13} /></button>
-                        <button onClick={() => setPublishOpen(true)} className="nb-btn" title="Publish to the App Store and Google Play" style={{ display: 'flex', alignItems: 'center', gap: 6, height: 30, borderRadius: 9, padding: '0 11px', fontSize: 12, fontWeight: 600, color: '#fff', border: 'none', background: 'linear-gradient(180deg,#ff9d2e,#f97316)' }}>
-                            <Rocket size={13} />Publish
+                        <button onClick={() => window.studio.preview.rebuild({ appId: app.id, cwd: app.path })} className="nb-btn" title={t('preview.refresh')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 9, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#9aa0a8' }}><Paintbrush size={13} /></button>
+                        <button onClick={() => setPublishOpen(true)} className="nb-btn" title={t('preview.publish')} style={{ display: 'flex', alignItems: 'center', gap: 6, height: 30, borderRadius: 9, padding: '0 11px', fontSize: 12, fontWeight: 600, color: '#fff', border: 'none', background: 'linear-gradient(180deg,#ff9d2e,#f97316)' }}>
+                            <Rocket size={13} />{t('preview.publishBtn')}
                         </button>
                     </>
                 )}
@@ -88,13 +90,13 @@ export function PreviewPane({ app, preview }) {
                     <div style={{ width: 330, height: '100%', maxHeight: 700, borderRadius: 34, padding: 10, background: '#0b0b0e', border: '1px solid rgba(255,255,255,0.14)', boxShadow: '0 40px 80px -30px rgba(0,0,0,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, textAlign: 'center', padding: 20 }}>
                             <img src={logo} alt="" className="nb-pulse" style={{ width: 44, height: 44, objectFit: 'contain' }} />
-                            <div style={{ fontSize: 13.5, fontWeight: 600, color: '#e7e9ee' }}>{building ? `Building ${app.name}…` : app.name}</div>
+                            <div style={{ fontSize: 13.5, fontWeight: 600, color: '#e7e9ee' }}>{building ? t('preview.building', { name: app.name }) : app.name}</div>
                             <div style={{ fontSize: 12, color: '#6b7280' }}>
                                 {building
-                                    ? "Your app shows up here the moment it's ready."
+                                    ? t('preview.buildingSub')
                                     : app.built
-                                        ? 'Starting the preview — this can take a few seconds…'
-                                        : 'The live preview appears here once the first build lands.'}
+                                        ? t('preview.startingSub')
+                                        : t('preview.firstBuildSub')}
                             </div>
                         </div>
                     </div>
@@ -235,16 +237,17 @@ function DeviceViewport({ appId, src, device }) {
 
 /** Live dot for the dev server: starting (amber pulse) / up (green) / down (grey). */
 function ServerBadge({ status }) {
+    const t = useT();
     const map = {
-        building: { color: '#ffce7a', label: 'Rebuilding styles…', pulse: true },
-        starting: { color: '#ffce7a', label: 'Starting preview…', pulse: true },
-        up: { color: '#86e89a', label: 'Live', pulse: false },
-        down: { color: '#6b7280', label: 'Server stopped', pulse: false },
+        building: { color: '#ffce7a', label: t('server.building'), pulse: true },
+        starting: { color: '#ffce7a', label: t('server.starting'), pulse: true },
+        up: { color: '#86e89a', label: t('server.up'), pulse: false },
+        down: { color: '#6b7280', label: t('server.down'), pulse: false },
     };
     const s = map[status];
     if (!s) return null; // unknown yet — don't flash a misleading state
     return (
-        <span title={status === 'starting' ? 'The preview server can take a few seconds to boot' : s.label} style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 4, fontSize: 11.5, color: '#9aa0a8' }}>
+        <span title={status === 'starting' ? t('server.startTip') : s.label} style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 4, fontSize: 11.5, color: '#9aa0a8' }}>
             <span className={s.pulse ? 'nb-pulse' : undefined} style={{ width: 7, height: 7, borderRadius: 99, background: s.color }} />
             {s.label}
         </span>
@@ -252,6 +255,7 @@ function ServerBadge({ status }) {
 }
 
 function QrModal({ open, onClose, lanUrl, appName }) {
+    const t = useT();
     const [dataUrl, setDataUrl] = useState(null);
     const [copied, setCopied] = useState(false);
 
@@ -269,15 +273,15 @@ function QrModal({ open, onClose, lanUrl, appName }) {
     };
 
     return (
-        <Modal open={open} onClose={onClose} title="Open on your phone" subtitle={`${appName} — same WiFi network`} maxWidth={340}>
+        <Modal open={open} onClose={onClose} title={t('qr.title')} subtitle={t('qr.subtitle', { name: appName })} maxWidth={340}>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
                 {dataUrl && <img src={dataUrl} alt="QR code" style={{ width: 200, height: 200, borderRadius: 14, background: '#fff', padding: 8 }} />}
                 <div style={{ display: 'flex', width: '100%', gap: 8, alignItems: 'center', borderRadius: 12, padding: '9px 12px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)' }}>
                     <code style={{ flex: 1, fontSize: 12, color: '#ffce7a', overflowX: 'auto', whiteSpace: 'nowrap' }}>{lanUrl}</code>
-                    <button onClick={copy} className="nb-btn" style={{ fontSize: 11.5, fontWeight: 600, color: '#c2c7cf', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 8, padding: '5px 10px', flexShrink: 0 }}>{copied ? 'Copied ✓' : 'Copy'}</button>
+                    <button onClick={copy} className="nb-btn" style={{ fontSize: 11.5, fontWeight: 600, color: '#c2c7cf', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 8, padding: '5px 10px', flexShrink: 0 }}>{copied ? t('common.copied') : t('common.copy')}</button>
                 </div>
                 <p style={{ fontSize: 12, lineHeight: 1.55, textAlign: 'center', color: '#9aa0a8', margin: 0 }}>
-                    Scan with your camera or the NativeBlade app, or paste the link in your phone's browser.
+                    {t('qr.hint')}
                 </p>
                 <AppStoreLinks />
             </div>

@@ -193,13 +193,18 @@ function codexSession({ model, cwd, emit }) {
     const runner = {
         emit,
         start(prompt, isStopping) {
-            // `codex exec -` reads the prompt from stdin; --json emits JSONL
-            // events; --full-auto = workspace-write sandbox without approvals.
-            // That sandbox blocks network by default, which cancels the MCP
-            // call (and any npm/composer the AI runs) — enable it explicitly.
+            // `codex exec -` reads the prompt from stdin; --json emits JSONL.
+            // --dangerously-bypass-approvals-and-sandbox is REQUIRED, not just
+            // convenient: in headless exec, stdin is closed, so any MCP tool
+            // call that would prompt for approval is auto-cancelled ("user
+            // cancelled MCP tool call") — and under the workspace-write sandbox
+            // MCP calls fail anyway. Bypass is currently the only way to let
+            // the AI use the NativeBlade MCP (Codex issues #24135 / #16685).
+            // It matches Claude Code's acceptEdits trust level here: BYO CLI,
+            // building the user's own app on their own machine.
             const args = [
-                'exec', '-', '--json', '--full-auto', '--skip-git-repo-check',
-                '-c', 'sandbox_workspace_write.network_access=true',
+                'exec', '-', '--json', '--skip-git-repo-check',
+                '--dangerously-bypass-approvals-and-sandbox',
             ];
             if (model) args.push('-m', model);
             if (threadId) args.splice(1, 0, 'resume', threadId); // codex exec resume <id> -

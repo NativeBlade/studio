@@ -6,11 +6,13 @@ import { PlanWizard } from './PlanWizard.jsx';
 import { Checkpoint } from './Checkpoint.jsx';
 import { SecretCard } from './SecretCard.jsx';
 import { Composer } from './Composer.jsx';
+import { useT } from '../../lib/i18n.js';
 
 const EMPTY = []; // stable reference — a fresh [] per render makes zustand re-render forever
 
 /** The conversation with the AI for one app: messages, chain-of-thought groups, plan wizard, input. */
 export function ChatPanel({ app }) {
+    const t = useT();
     const messages = useChatStore((s) => s.byApp[app.id] ?? EMPTY);
     const busy = useChatStore((s) => s.busy[app.id] ?? false);
     const send = useChatStore((s) => s.send);
@@ -32,7 +34,7 @@ export function ChatPanel({ app }) {
             <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
                 {messages.length === 0 && (
                     <div style={{ margin: 'auto', textAlign: 'center', color: '#6b7280', fontSize: 13 }}>
-                        Tell the AI what to build in <strong style={{ color: '#9aa0a8' }}>{app.name}</strong> — it works right on your machine.
+                        {t('chat.emptyPre')}<strong style={{ color: '#9aa0a8' }}>{app.name}</strong>{t('chat.emptyPost')}
                     </div>
                 )}
                 {messages.map((m) => {

@@ -7,6 +7,11 @@ import { usePreviewStore } from './preview.js';
 import { useConsoleStore, formatConsoleNote } from './console.js';
 import { planPrompt, buildPrompt, parsePlan } from '../lib/plan.js';
 import { parseSecrets, stripRebuild } from '../lib/secret.js';
+import { translate } from '../lib/i18n.js';
+
+// System messages are rendered as chat, not routed through a React hook, so
+// resolve the current UI language straight from the settings store.
+const tt = (key, vars) => translate(useSettingsStore.getState().uiLang ?? 'en', key, vars);
 
 let nextId = 1;
 
@@ -102,12 +107,12 @@ export const useChatStore = create(persist((set, get) => ({
     restore: async (app, cp) => {
         const res = await window.studio.git.reset({ cwd: app.path, sha: cp.sha });
         if (!res?.ok) {
-            pushMsg(set, app.id, { role: 'error', text: 'Could not roll back to that checkpoint.' });
+            pushMsg(set, app.id, { role: 'error', text: tt('chat.rollbackFailed') });
             return;
         }
         turnBase[app.id] = cp.sha;
         pendingNote[app.id] = `[Project state changed outside the conversation: the user rolled the code back to Checkpoint v${cp.n} (git commit ${cp.sha.slice(0, 7)}${cp.subject ? `: "${cp.subject}"` : ''}) with \`git reset --hard\`. The working tree on disk now matches that commit — any edits you made after it are gone. Before making changes, re-read the relevant files to see the actual current state; do not assume your later edits are still present.]`;
-        pushMsg(set, app.id, { role: 'system', text: `Restored to Checkpoint v${cp.n}. Later changes were rolled back — the AI will pick up the change on your next message.` });
+        pushMsg(set, app.id, { role: 'system', text: tt('chat.restored', { n: cp.n }) });
         usePreviewStore.getState().reload(app.id);
     },
 
@@ -117,11 +122,11 @@ export const useChatStore = create(persist((set, get) => ({
         set((s) => ({ byApp: { ...s.byApp, [app.id]: (s.byApp[app.id] ?? []).map((m) => (m.id === message.id ? { ...m, resolved: true } : m)) } }));
         const res = await window.studio.env.setSecret({ cwd: app.path, key: message.spec.env, value });
         if (!res?.ok) {
-            pushMsg(set, app.id, { role: 'error', text: `Could not save ${message.spec.label} to .env.` });
+            pushMsg(set, app.id, { role: 'error', text: tt('chat.saveFailed', { label: message.spec.label }) });
             return;
         }
         usePreviewStore.getState().reload(app.id);
-        pushMsg(set, app.id, { role: 'system', text: `Saved ${message.spec.label} securely to .env.` });
+        pushMsg(set, app.id, { role: 'system', text: tt('chat.secretSaved', { label: message.spec.label }) });
         launch(set, app, `The value for ${message.spec.env} has been saved to .env. Continue building.`, 'chat');
     },
 
@@ -129,13 +134,14 @@ export const useChatStore = create(persist((set, get) => ({
     triggerRebuild: async (appId) => {
         const app = useAppsStore.getState().apps.find((a) => a.id === appId);
         if (!app?.path) return;
-        pushMsg(set, appId, { role: 'system', text: 'Rebuilding styles — this takes a few seconds…' });
+        pushMsg(set, appId, { role: 'system', text: tt('chat.rebuilding') });
         await window.studio.preview.rebuild({ appId, cwd: app.path });
     },
 
     handleEvent: (evt) => {
         const { appId } = evt;
         let rebuild = false;
+        let doneMode = null;
         set((s) => {
             const list = [...(s.byApp[appId] ?? [])];
             const gi = list.findLastIndex((m) => m.role === 'group');
@@ -151,6 +157,7 @@ export const useChatStore = create(persist((set, get) => ({
 
             if (evt.type === 'done' || evt.type === 'stopped' || evt.type === 'error') {
                 const mode = s.mode[appId];
+                doneMode = mode;
                 if (group) group.endedAt = Date.now();
 
                 if (evt.type === 'done' && mode === 'build') useAppsStore.getState().setBuilt(appId);
@@ -173,7 +180,7 @@ export const useChatStore = create(persist((set, get) => ({
                     }
                     if (group && !group.items.length) list.splice(list.indexOf(group), 1);
                 }
-                if (evt.type === 'stopped') list.push({ id: nextId++, role: 'system', text: 'Stopped. Send a message to continue from here.' });
+                if (evt.type === 'stopped') list.push({ id: nextId++, role: 'system', text: tt('chat.stopped') });
                 if (evt.type === 'error') list.push({ id: nextId++, role: 'error', text: evt.message });
 
                 // A failed build (e.g. scaffold error) re-opens the plan so the
@@ -188,10 +195,11 @@ export const useChatStore = create(persist((set, get) => ({
             return { byApp: { ...s.byApp, [appId]: list } };
         });
 
-        // A finished turn may have produced a git commit → record a checkpoint,
-        // and/or touched CSS → the AI flags a full style rebuild.
+        // Checkpoints are for tweaks AFTER the first build — the initial build
+        // is the baseline (nothing earlier to roll back to), so only 'chat'
+        // turns get one. Also handle a CSS rebuild the AI flagged.
         if (evt.type === 'done') {
-            get().recordCheckpoint(appId);
+            if (doneMode === 'chat') get().recordCheckpoint(appId);
             if (rebuild) get().triggerRebuild(appId);
         }
     },

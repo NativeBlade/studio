@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePreviewStore } from '../../stores/preview.js';
 import { ChatPanel } from './ChatPanel.jsx';
 import { PreviewPane } from '../preview/PreviewPane.jsx';
+import { useT } from '../../lib/i18n.js';
 
 /**
  * App workspace: chat on the left, live preview on the right, draggable
@@ -9,6 +10,7 @@ import { PreviewPane } from '../preview/PreviewPane.jsx';
  * lives only while this view is open (started on enter, stopped on leave).
  */
 export function Workspace({ app }) {
+    const t = useT();
     const [chatW, setChatW] = useState(480);
     const rootRef = useRef(null);
     const preview = usePreviewStore((s) => s.byApp[app.id] ?? null);
@@ -46,7 +48,7 @@ export function Workspace({ app }) {
         <div ref={rootRef} className="nb-screen" style={{ height: '100%', display: 'grid', gridTemplateColumns: `${chatW}px 14px 1fr`, padding: 16 }}>
             <ChatPanel app={app} />
 
-            <div onMouseDown={startDrag} title="Drag to resize" style={{ cursor: 'col-resize', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div onMouseDown={startDrag} title={t('workspace.dragResize')} style={{ cursor: 'col-resize', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <div style={{ width: 3, height: 44, borderRadius: 99, background: 'rgba(255,255,255,0.14)' }} />
             </div>
 

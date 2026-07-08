@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Eye, EyeOff, KeyRound } from 'lucide-react';
 import logo from '../../assets/nb-logo.png';
+import { useT } from '../../lib/i18n.js';
 
 /**
  * A masked input the AI asks for when it needs a user-only value (API key,
@@ -8,6 +9,7 @@ import logo from '../../assets/nb-logo.png';
  * enters the chat log. Replit-style: clear label, help link, save.
  */
 export function SecretCard({ message, onResolve }) {
+    const t = useT();
     const { spec, resolved } = message;
     const [value, setValue] = useState('');
     const [show, setShow] = useState(false);
@@ -23,13 +25,13 @@ export function SecretCard({ message, onResolve }) {
                     <span style={{ fontSize: 13.5, fontWeight: 600, color: '#fff' }}>{spec.label}</span>
                 </div>
                 <p style={{ margin: '0 0 12px', fontSize: 12.5, lineHeight: 1.55, color: '#9aa0a8' }}>
-                    The app needs this value to work. It's saved privately to your project's <code style={{ color: '#ffce7a' }}>.env</code> — never shown in the chat.
+                    {t('secret.needsPre')}<code style={{ color: '#ffce7a' }}>.env</code>{t('secret.needsPost')}
                     {spec.help && <> {spec.help}</>}
                 </p>
 
                 {resolved ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, fontWeight: 600, color: '#86e89a' }}>
-                        <span style={{ width: 7, height: 7, borderRadius: 99, background: '#86e89a' }} />Saved to .env
+                        <span style={{ width: 7, height: 7, borderRadius: 99, background: '#86e89a' }} />{t('secret.saved')}
                     </div>
                 ) : (
                     <div style={{ display: 'flex', gap: 8 }}>
@@ -39,15 +41,15 @@ export function SecretCard({ message, onResolve }) {
                                 value={value}
                                 onChange={(e) => setValue(e.target.value)}
                                 onKeyDown={(e) => { if (e.key === 'Enter' && value.trim()) onResolve(value.trim()); }}
-                                placeholder={`Paste your ${spec.label}…`}
+                                placeholder={t('secret.paste', { label: spec.label })}
                                 autoFocus
                                 style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 13, color: '#e7e9ee', padding: '8px 0' }}
                             />
-                            <button onClick={() => setShow((v) => !v)} className="nb-btn" title={show ? 'Hide' : 'Show'} style={{ display: 'flex', background: 'none', border: 'none', color: '#6b7280' }}>
+                            <button onClick={() => setShow((v) => !v)} className="nb-btn" title={show ? t('secret.hide') : t('secret.show')} style={{ display: 'flex', background: 'none', border: 'none', color: '#6b7280' }}>
                                 {show ? <EyeOff size={14} /> : <Eye size={14} />}
                             </button>
                         </div>
-                        <button onClick={() => value.trim() && onResolve(value.trim())} disabled={!value.trim()} className="nb-btn" style={{ borderRadius: 10, padding: '0 16px', fontSize: 12.5, fontWeight: 600, color: '#fff', border: 'none', background: value.trim() ? 'linear-gradient(180deg,#ff5151,#d31f1f)' : 'rgba(255,255,255,0.06)' }}>Save</button>
+                        <button onClick={() => value.trim() && onResolve(value.trim())} disabled={!value.trim()} className="nb-btn" style={{ borderRadius: 10, padding: '0 16px', fontSize: 12.5, fontWeight: 600, color: '#fff', border: 'none', background: value.trim() ? 'linear-gradient(180deg,#ff5151,#d31f1f)' : 'rgba(255,255,255,0.06)' }}>{t('secret.save')}</button>
                     </div>
                 )}
             </div>

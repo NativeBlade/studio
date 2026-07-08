@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { Loader, Mic, Square } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settings.js';
 import { AUDIO_LANGUAGES } from '../../lib/languages.js';
+import { useT } from '../../lib/i18n.js';
 import { createRecorder } from '../../lib/recorder.js';
 import { transcribe } from '../../lib/whisper.js';
 import { Modal } from '../ui/Modal.jsx';
@@ -9,6 +10,7 @@ import { Modal } from '../ui/Modal.jsx';
 /** Message input: Enter sends, Shift+Enter breaks a line, mic dictates. */
 export function Composer({ onSend, busy }) {
     const [value, setValue] = useState('');
+    const t = useT();
     const audioLang = useSettingsStore((s) => s.audioLang);
     const setAudioLang = useSettingsStore((s) => s.setAudioLang);
 
@@ -33,7 +35,7 @@ export function Composer({ onSend, busy }) {
             await recorderRef.current.start();
             setVoice('recording');
         } catch {
-            setVoiceError('Could not access the microphone. Check the app\'s mic permission.');
+            setVoiceError(t('composer.micError'));
         }
     };
 
@@ -47,7 +49,7 @@ export function Composer({ onSend, busy }) {
                 const text = await transcribe(samples, audioLang ?? null, setProgress);
                 if (text) setValue((v) => (v ? `${v} ${text}` : text));
             } catch {
-                setVoiceError('Transcription failed. Try again, or type your message.');
+                setVoiceError(t('composer.transcribeError'));
             } finally {
                 setVoice('idle'); setProgress(0);
             }
@@ -76,12 +78,12 @@ export function Composer({ onSend, busy }) {
                     onChange={(e) => setValue(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
                     rows={1}
-                    placeholder={recording ? 'Listening… tap the mic to stop' : working ? (progress ? `Loading voice model… ${progress}%` : 'Transcribing…') : busy ? 'Building — send tweaks and the AI folds them in…' : 'Describe a screen, a feature, a change…'}
+                    placeholder={recording ? t('composer.listening') : working ? (progress ? t('composer.loadingModel', { percent: progress }) : t('composer.transcribing')) : busy ? t('composer.busy') : t('composer.idle')}
                     style={{ flex: 1, resize: 'none', maxHeight: 120, background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, padding: '11px 14px', fontSize: 13.5, color: '#e7e9ee', outline: 'none', fontFamily: 'inherit' }}
                 />
                 <button
                     onClick={micClick}
-                    title={recording ? 'Stop and transcribe' : 'Speak your message'}
+                    title={recording ? t('composer.stopMic') : t('composer.speak')}
                     style={{ cursor: working ? 'default' : 'pointer', width: 40, height: 40, flexShrink: 0, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', color: recording ? '#fff' : '#9aa0a8', background: recording ? 'linear-gradient(180deg,#ff5151,#d31f1f)' : 'rgba(255,255,255,0.06)', border: recording ? 'none' : '1px solid rgba(255,255,255,0.12)' }}
                 >
                     {working ? <Loader size={16} className="nb-spin" /> : recording ? <Square size={14} fill="currentColor" /> : <Mic size={16} />}
@@ -90,17 +92,17 @@ export function Composer({ onSend, busy }) {
                     onClick={send}
                     disabled={!value.trim()}
                     style={{ cursor: value.trim() ? 'pointer' : 'default', width: 40, height: 40, flexShrink: 0, borderRadius: 12, border: 'none', fontSize: 16, color: '#fff', background: value.trim() ? 'linear-gradient(180deg,#ff5151,#d31f1f)' : 'rgba(255,255,255,0.06)' }}
-                    title="Send"
+                    title={t('composer.send')}
                 >
                     ➤
                 </button>
             </div>
 
-            <Modal open={askLang} onClose={() => setAskLang(false)} title="What language will you speak?" subtitle="Used to transcribe your voice. You can change it later next to the AI model." maxWidth={360}>
+            <Modal open={askLang} onClose={() => setAskLang(false)} title={t('composer.askLang.title')} subtitle={t('composer.askLang.subtitle')} maxWidth={360}>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                     {AUDIO_LANGUAGES.map((l) => (
-                        <button key={l.label} onClick={() => chooseLang(l.value)} className="nb-btn" style={{ borderRadius: 99, padding: '8px 14px', fontSize: 13, fontWeight: 500, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.14)', color: '#e7e9ee' }}>
-                            {l.label}
+                        <button key={l.label} onClick={() => chooseLang(l.value)} className="nb-btn" style={{ display: 'flex', alignItems: 'center', gap: 7, borderRadius: 99, padding: '8px 14px', fontSize: 13, fontWeight: 500, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.14)', color: '#e7e9ee' }}>
+                            <span style={{ fontSize: 15 }}>{l.flag}</span>{l.label}
                         </button>
                     ))}
                 </div>

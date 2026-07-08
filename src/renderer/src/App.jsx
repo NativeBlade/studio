@@ -4,8 +4,10 @@ import { useEnvStore } from './stores/env.js';
 import { useChatStore } from './stores/chat.js';
 import { usePreviewStore } from './stores/preview.js';
 import { useSettingsStore } from './stores/settings.js';
+import { useT } from './lib/i18n.js';
 import { TopBar } from './components/layout/TopBar.jsx';
 import { SetupScreen } from './components/setup/SetupScreen.jsx';
+import { LanguagePicker } from './components/setup/LanguagePicker.jsx';
 import { Launcher } from './components/launcher/Launcher.jsx';
 import { Workspace } from './components/chat/Workspace.jsx';
 
@@ -21,6 +23,8 @@ export default function App() {
     const refreshEnv = useEnvStore((s) => s.refresh);
     const engine = useSettingsStore((s) => s.engine);
     const setEngine = useSettingsStore((s) => s.setEngine);
+    const uiLang = useSettingsStore((s) => s.uiLang);
+    const t = useT();
     const app = useAppsStore((s) => s.apps.find((a) => a.id === s.current));
     const close = useAppsStore((s) => s.close);
     const handleEvent = useChatStore((s) => s.handleEvent);
@@ -62,15 +66,18 @@ export default function App() {
         );
     }
 
+    // First run: pick the interface language before anything else.
+    if (uiLang === undefined) return <LanguagePicker />;
+
     const engineOk = !!result.checks.find((c) => c.id === engine)?.ok;
 
     return (
         <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             {updateReady && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '7px 14px', fontSize: 12.5, color: '#fff', background: 'linear-gradient(180deg,#ff5151,#d31f1f)' }}>
-                    <span>A new version ({updateReady}) is ready.</span>
-                    <button onClick={() => window.studio.updates.restart()} className="nb-btn" style={{ borderRadius: 8, padding: '4px 12px', fontSize: 12, fontWeight: 600, color: '#d31f1f', background: '#fff', border: 'none' }}>Restart to update</button>
-                    <button onClick={() => setUpdateReady(null)} className="nb-btn" style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>Later</button>
+                    <span>{t('update.ready', { version: updateReady })}</span>
+                    <button onClick={() => window.studio.updates.restart()} className="nb-btn" style={{ borderRadius: 8, padding: '4px 12px', fontSize: 12, fontWeight: 600, color: '#d31f1f', background: '#fff', border: 'none' }}>{t('update.restart')}</button>
+                    <button onClick={() => setUpdateReady(null)} className="nb-btn" style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>{t('update.later')}</button>
                 </div>
             )}
             <TopBar app={engineOk ? app : null} onBack={back} onOpenSetup={() => setSetupOpen(true)} />

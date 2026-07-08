@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ChevronDown, History, Loader, Square, Terminal } from 'lucide-react';
 import { mdToHtml } from '../../lib/md.js';
+import { useT } from '../../lib/i18n.js';
 
 function fmtDur(ms) {
     const sec = Math.max(1, Math.floor(ms / 1000));
@@ -16,6 +17,7 @@ function fmtDur(ms) {
  * timer and the Stop button while the run is live.
  */
 export function ProgressGroup({ group, live, onStop }) {
+    const t = useT();
     const [open, setOpen] = useState(false);
     const items = group.items;
     const latest = items[items.length - 1];
@@ -38,14 +40,14 @@ export function ProgressGroup({ group, live, onStop }) {
                         ? <Loader size={13} className="nb-spin" style={{ color: '#ffce7a', flexShrink: 0 }} />
                         : <History size={13} style={{ color: '#9aa0a8', flexShrink: 0 }} />}
                     <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 500, color: '#9aa0a8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {live ? 'Working…' : 'Build details'}{items.length > 0 && <> · {items.length} update{items.length === 1 ? '' : 's'}</>}
+                        {live ? t('progress.working') : t('progress.details')}{items.length > 0 && <> · {items.length} {items.length === 1 ? t('progress.update') : t('progress.updates')}</>}
                         <span style={{ color: live ? '#ffce7a' : '#6b7280' }}> · {dur}</span>
                     </span>
                     {items.length > 0 && <ChevronDown size={13} style={{ color: '#6b7280', flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />}
                 </button>
                 {live && (
-                    <button onClick={onStop} className="nb-btn" title="Stop" style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0, fontSize: 11.5, fontWeight: 600, color: '#ff8585', background: 'rgba(255,69,58,0.12)', border: '1px solid rgba(255,69,58,0.3)', borderRadius: 8, padding: '4px 9px' }}>
-                        <Square size={9} fill="currentColor" />Stop
+                    <button onClick={onStop} className="nb-btn" title={t('progress.stop')} style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0, fontSize: 11.5, fontWeight: 600, color: '#ff8585', background: 'rgba(255,69,58,0.12)', border: '1px solid rgba(255,69,58,0.3)', borderRadius: 8, padding: '4px 9px' }}>
+                        <Square size={9} fill="currentColor" />{t('progress.stop')}
                     </button>
                 )}
             </div>
