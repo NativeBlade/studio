@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FolderOpen, X } from 'lucide-react';
 import { useAppsStore } from '../../stores/apps.js';
 import { useT } from '../../lib/i18n.js';
@@ -8,6 +8,13 @@ export function AppCard({ app, onDelete }) {
     const open = useAppsStore((s) => s.open);
     const t = useT();
     const [hover, setHover] = useState(false);
+    const [logo, setLogo] = useState(null); // data URL of the app's icon, if any
+
+    useEffect(() => {
+        let alive = true;
+        if (app.path) window.studio.apps.logo({ cwd: app.path }).then((d) => { if (alive) setLogo(d); }).catch(() => {});
+        return () => { alive = false; };
+    }, [app.path, app.built]);
 
     return (
         <div
@@ -17,9 +24,13 @@ export function AppCard({ app, onDelete }) {
             className="nb-card nb-card-hover"
             style={{ display: 'flex', cursor: 'pointer', alignItems: 'center', gap: 12, borderRadius: 16, padding: 16, textAlign: 'left' }}
         >
-            <span style={{ display: 'flex', height: 40, width: 40, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: 12, fontSize: 15, fontWeight: 700, color: '#fff', background: '#dc2626' }}>
-                {app.name.slice(0, 1).toUpperCase()}
-            </span>
+            {logo ? (
+                <img src={logo} alt="" style={{ height: 40, width: 40, flexShrink: 0, borderRadius: 12, objectFit: 'cover' }} />
+            ) : (
+                <span style={{ display: 'flex', height: 40, width: 40, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: 12, fontSize: 15, fontWeight: 700, color: '#fff', background: '#dc2626' }}>
+                    {app.name.slice(0, 1).toUpperCase()}
+                </span>
+            )}
             <div style={{ minWidth: 0, flex: 1 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{app.name}</div>
                 <div style={{ fontSize: 12, color: '#6b7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{app.built ? t('card.built') : t('card.draft')} · {(app.platforms || []).map((p) => t(`newapp.${p}`)).join(' + ')}</div>

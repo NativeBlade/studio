@@ -4,14 +4,35 @@ import { createServer } from 'net';
 import os from 'os';
 import { spawnManaged, killTree } from './child-registry.js';
 
-/** First non-internal IPv4 — the address a phone on the same WiFi can reach. */
+/**
+ * The IPv4 a phone on the same WiFi can reach. The naive "first non-internal
+ * IPv4" grabs whatever the OS lists first, which on Windows is often a virtual
+ * adapter (WSL / Hyper-V / Docker / VPN, usually a 172.x address) the phone
+ * can't route to. So we score candidates: real home/office ranges win, virtual
+ * adapters are penalized by name, and link-local (169.254.x) is dropped.
+ */
 function lanAddress() {
-    for (const nics of Object.values(os.networkInterfaces())) {
+    const candidates = [];
+    for (const [name, nics] of Object.entries(os.networkInterfaces())) {
         for (const nic of nics ?? []) {
-            if (nic.family === 'IPv4' && !nic.internal) return nic.address;
+            if (nic.family !== 'IPv4' || nic.internal) continue;
+            if (nic.address.startsWith('169.254.')) continue; // APIPA, not routable
+            candidates.push({ name, address: nic.address });
         }
     }
-    return null;
+    if (!candidates.length) return null;
+
+    const score = ({ name, address }) => {
+        let s = 0;
+        if (address.startsWith('192.168.')) s += 100;          // classic home/office LAN
+        else if (/^10\./.test(address)) s += 80;               // common LAN / router range
+        else if (/^172\.(1[6-9]|2\d|3[01])\./.test(address)) s += 20; // private, but often virtual on Windows
+        // Virtual / VPN adapters the phone can't reach:
+        if (/vethernet|wsl|hyper-?v|virtualbox|vmware|docker|default switch|loopback|tailscale|zerotier|tap-|npcap|radmin/i.test(name)) s -= 200;
+        return s;
+    };
+    candidates.sort((a, b) => score(b) - score(a));
+    return candidates[0].address;
 }
 
 /**

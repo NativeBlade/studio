@@ -1,7 +1,8 @@
 import { spawn } from 'child_process';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import { homedir, tmpdir } from 'os';
+import { randomUUID } from 'crypto';
 import { register, killTree } from './child-registry.js';
 
 const MCP_URL = 'https://mcp.nativeblade.dev';
@@ -23,6 +24,24 @@ function ensureCodexMcp() {
         const pad = existing && !existing.endsWith('\n') ? '\n' : '';
         writeFileSync(file, `${existing}${pad}\n[mcp_servers.nativeblade]\nurl = "${MCP_URL}"\n`);
     } catch { /* best-effort — Codex still works without the MCP */ }
+}
+
+/**
+ * Grok Build (xAI's `grok` CLI) discovers MCP servers from its user-level
+ * ~/.grok/config.toml. We write the exact block `grok mcp add --transport http`
+ * produces (verified on a real install) so the format is authoritative, not a
+ * guess — just faster than shelling out to the CLI on every session.
+ */
+function ensureGrokMcp() {
+    try {
+        const dir = join(homedir(), '.grok');
+        const file = join(dir, 'config.toml');
+        const existing = existsSync(file) ? readFileSync(file, 'utf-8') : '';
+        if (/\[mcp_servers\.nativeblade\]/.test(existing)) return; // already registered
+        mkdirSync(dir, { recursive: true });
+        const pad = existing && !existing.endsWith('\n') ? '\n' : '';
+        writeFileSync(file, `${existing}${pad}\n[mcp_servers.nativeblade]\nurl = "${MCP_URL}"\nenabled = true\n`);
+    } catch { /* best-effort — Grok still runs without the MCP */ }
 }
 
 /**
@@ -56,6 +75,17 @@ export const ENGINES = {
             { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini' },
         ],
     },
+    grok: {
+        name: 'Grok Build',
+        vendor: 'xAI',
+        loginHint: 'run `grok login` and sign in with SuperGrok or X Premium+',
+        // Real ids from `grok models`; Default (no -m) uses grok-composer-2.5-fast.
+        models: [
+            { id: null, label: 'Default (recommended)' },
+            { id: 'grok-composer-2.5-fast', label: 'Composer 2.5 Fast' },
+            { id: 'grok-build', label: 'Grok Build' },
+        ],
+    },
     // Gemini CLI is intentionally omitted: Google deprecated free "Gemini Code
     // Assist for individuals" sign-in in the CLI (it now points people to the
     // Antigravity suite), so the login no longer works for our BYO-subscription
@@ -69,7 +99,8 @@ const CLAUDE_ALLOWED_TOOLS = 'Bash,Edit,Write,Read,Glob,Grep,WebFetch,WebSearch,
 
 export function createSession({ engine = 'claude', model = null, cwd, emit }) {
     if (engine === 'codex') ensureCodexMcp(); // Codex needs the MCP in its global config, not .mcp.json
-    const make = { claude: claudeSession, codex: codexSession }[engine] ?? claudeSession;
+    if (engine === 'grok') ensureGrokMcp(); // same story for Grok Build
+    const make = { claude: claudeSession, codex: codexSession, grok: grokSession }[engine] ?? claudeSession;
     return make({ model, cwd, emit });
 }
 
@@ -232,4 +263,99 @@ function codexSession({ model, cwd, emit }) {
         },
     };
     return baseSession(runner);
+}
+
+/* ------------------------------------------------------------------ grok */
+
+/**
+ * Grok Build (`grok`). Verified schema of `--output-format streaming-json`:
+ *   {type:'thought', data}  — reasoning tokens (ignored)
+ *   {type:'text',    data}  — the answer, streamed in fragments (accumulated)
+ *   {type:'end', stopReason, sessionId} — terminal; sessionId powers --resume
+ * The prompt goes through --prompt-file (a temp file), never stdin (Grok's -p
+ * takes the prompt as a value, not stdin) and never an inline arg (spawnCli runs
+ * with shell:true, so multi-line/quoted text would break the command line).
+ * bypassPermissions matches Claude's acceptEdits / Codex's bypass trust level:
+ * a BYO CLI building the user's own app on their own machine.
+ */
+function grokSession({ model, cwd, emit }) {
+    let sessionId = null; // captured from `end` → --resume keeps the thread alive
+
+    const runner = {
+        emit,
+        start(prompt, isStopping) {
+            const args = ['--output-format', 'streaming-json', '--permission-mode', 'bypassPermissions'];
+            if (model) args.push('-m', model);
+            if (sessionId) args.push('--resume', sessionId);
+
+            const promptFile = join(tmpdir(), `nb-grok-${randomUUID()}.txt`);
+            writeFileSync(promptFile, prompt);
+            args.push('--prompt-file', promptFile);
+
+            const child = spawnCli('grok', args, cwd);
+            child.on('close', () => { try { unlinkSync(promptFile); } catch { /* already gone */ } });
+
+            let answer = ''; // 'text' fragments concatenate into the final reply
+            let ended = false;
+            let thinking = false; // one "Thinking…" line per reasoning stretch
+            lineReader(child, (line) => {
+                let evt;
+                try { evt = JSON.parse(line); } catch { return; }
+                if (evt.type === 'thought') {
+                    // Reasoning tokens aren't shown, but Grok can think for a while
+                    // before its first command — surface one "Thinking…" line so the
+                    // progress group moves instead of looking frozen on the last step.
+                    if (!thinking) { thinking = true; emit({ type: 'tool', name: 'grok', label: 'Thinking…', detail: null }); }
+                    return;
+                }
+                if (evt.type === 'text') { thinking = false; if (typeof evt.data === 'string') answer += evt.data; return; }
+                if (evt.type === 'error') {
+                    if (!ended && !isStopping()) { ended = true; emit({ type: 'error', message: grokErrMsg(evt) }); }
+                    return;
+                }
+                if (evt.type === 'end') {
+                    if (evt.sessionId) sessionId = evt.sessionId;
+                    if (!ended && !isStopping()) {
+                        ended = true;
+                        if (answer.trim()) emit({ type: 'text', text: answer });
+                        emit({ type: 'done' });
+                    }
+                    return;
+                }
+                // Anything else is tool/command/file activity — show it if we can.
+                const tool = grokTool(evt);
+                if (tool) { thinking = false; emit({ type: 'tool', name: 'grok', ...tool }); }
+            });
+
+            // Fallback: process died without an `end`/`error` event — still flush
+            // whatever answer we have and close the turn.
+            runner.onClose = () => {
+                if (ended) return;
+                if (answer.trim()) emit({ type: 'text', text: answer });
+                emit({ type: 'done' });
+            };
+            return child;
+        },
+    };
+    return baseSession(runner);
+}
+
+// Map an unrecognized Grok event to a chain-of-thought tool line, or null. The
+// tool event schema isn't confirmed yet, so this stays tolerant; a miss just
+// means no detail line, never a broken turn.
+function grokTool(evt) {
+    if (!evt || typeof evt !== 'object') return null;
+    const type = String(evt.type ?? '');
+    const cmd = evt.command ?? evt.data?.command ?? evt.input?.command;
+    if (typeof cmd === 'string' && cmd.trim()) return { label: 'Running command', detail: cmd.slice(0, 220) };
+    const file = evt.path ?? evt.file ?? evt.file_path ?? evt.data?.path ?? evt.input?.file_path;
+    if (typeof file === 'string' && file) return { label: `Writing ${String(file).split(/[\\/]/).pop()}`, detail: null };
+    if (/tool|command|exec|bash|shell/i.test(type)) return { label: 'Working', detail: null };
+    if (/file|edit|write|patch/i.test(type)) return { label: 'Writing code', detail: null };
+    return null;
+}
+
+function grokErrMsg(evt) {
+    const m = evt.error?.message ?? evt.message ?? evt.data ?? evt.error;
+    return typeof m === 'string' && m.trim() ? m.slice(-600) : 'The AI run failed.';
 }

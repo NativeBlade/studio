@@ -4,12 +4,12 @@ import os from 'os';
 /**
  * Hidden environment doctor: detects the OS, the NativeBlade toolchain
  * (PHP >= 8.3, Composer, Node >= 20, git) and which AI CLIs are installed
- * (Claude Code, Codex), with per-OS install guidance for whatever is
- * missing. The user never sees this as a screen — the toolchain report goes
+ * (Claude Code, Codex, Grok Build), with per-OS install guidance for whatever
+ * is missing. The user never sees this as a screen — the toolchain report goes
  * to the AI via the context files, and only the AI engines surface in setup.
  */
 
-const MIN = { php: [8, 3], node: [20, 0], composer: [2, 0], git: [2, 0], claude: [1, 0], codex: [0, 1] };
+const MIN = { php: [8, 3], node: [20, 0], composer: [2, 0], git: [2, 0], claude: [1, 0], codex: [0, 1], grok: [0, 1] };
 
 function run(cmd, args) {
     return new Promise((resolve) => {
@@ -51,7 +51,8 @@ const HINTS = {
     },
 };
 
-// The AI engines install the same way on every OS (npm).
+// Claude and Codex install the same way on every OS (npm). Grok Build ships a
+// per-OS shell installer, so its hint is picked by platform below.
 const AI_HINTS = {
     claude: { label: 'Install Claude Code', cmd: 'npm install -g @anthropic-ai/claude-code', url: 'https://claude.com/claude-code' },
     codex: { label: 'Install Codex CLI', cmd: 'npm install -g @openai/codex', url: 'https://developers.openai.com/codex/cli' },
@@ -61,13 +62,18 @@ export async function checkEnvironment() {
     const platform = process.platform; // win32 | darwin | linux
     const hints = HINTS[platform] ?? HINTS.linux;
 
-    const [php, composer, node, git, claude, codex] = await Promise.all([
+    const grokHint = platform === 'win32'
+        ? { label: 'Install Grok Build', cmd: 'irm https://x.ai/cli/install.ps1 | iex', url: 'https://docs.x.ai/build' }
+        : { label: 'Install Grok Build', cmd: 'curl -fsSL https://x.ai/cli/install.sh | bash', url: 'https://docs.x.ai/build' };
+
+    const [php, composer, node, git, claude, codex, grok] = await Promise.all([
         run('php', ['-v']),
         run('composer', ['--version']),
         run('node', ['-v']),
         run('git', ['--version']),
         run('claude', ['--version']),
         run('codex', ['--version']),
+        run('grok', ['--version']),
     ]);
 
     const checks = [
@@ -77,6 +83,7 @@ export async function checkEnvironment() {
         { id: 'git', name: 'Git', version: parseVersion(git, /git version (\d+\.\d+[\.\d]*)/), required: '>= 2 (powers rollback checkpoints)', hint: hints.git },
         { id: 'claude', name: 'Claude Code', version: parseVersion(claude, /(\d+\.\d+\.\d+)/), required: 'any recent version', hint: AI_HINTS.claude },
         { id: 'codex', name: 'Codex CLI', version: parseVersion(codex, /(\d+\.\d+\.\d+)/), required: 'any recent version', hint: AI_HINTS.codex },
+        { id: 'grok', name: 'Grok Build', version: parseVersion(grok, /(\d+\.\d+(?:\.\d+)?)/), required: 'any recent version', hint: grokHint },
     ].map((c) => ({ ...c, ok: meets(c.version, MIN[c.id]) }));
 
     return {

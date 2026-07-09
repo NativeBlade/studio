@@ -1,15 +1,25 @@
-import { app, BrowserWindow, ipcMain, shell, webContents } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, webContents, dialog } from 'electron';
 import { execFile } from 'child_process';
-import { join, resolve } from 'path';
-import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from 'fs';
+import { join, resolve, dirname } from 'path';
+import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, copyFileSync } from 'fs';
 import { checkEnvironment } from './services/env.js';
 import { createSession, ENGINES } from './services/engines.js';
+import { imageStatus, setImageConfig, generateImage, IMAGE_PROVIDERS } from './services/image.js';
 import { scaffoldApp } from './services/scaffold.js';
 import { startPreview, stopPreview, rebuildPreview } from './services/dev-server.js';
 import { tunnelStatus, tunnelInstall, startTunnel, stopTunnel, currentTunnel } from './services/tunnel.js';
 import { killAllSync } from './services/child-registry.js';
 import { fixPath } from './services/fix-path.js';
 import { setupUpdater } from './services/updater.js';
+
+/** Read a PNG's pixel dimensions from its IHDR header (no image lib needed). */
+function pngSize(path) {
+    try {
+        const b = readFileSync(path);
+        if (b.length < 24 || b.readUInt32BE(0) !== 0x89504e47) return null; // not a PNG
+        return { width: b.readUInt32BE(16), height: b.readUInt32BE(20) };
+    } catch { return null; }
+}
 
 /** The main window, so the updater can push status to the renderer. */
 let mainWindow = null;
@@ -87,6 +97,36 @@ app.whenReady().then(async () => {
 
     ipcMain.handle('env:check', () => getEnv(true));
     ipcMain.handle('engines:list', () => ENGINES);
+
+    // Optional image generation (the user's own image-API key). The renderer
+    // only ever learns the provider + whether a key is set, never the key.
+    ipcMain.handle('image:providers', () => IMAGE_PROVIDERS);
+    ipcMain.handle('image:get', () => imageStatus());
+    ipcMain.handle('image:set', (_e, cfg) => setImageConfig(cfg));
+    ipcMain.handle('image:test', async (_e, { prompt } = {}) => {
+        try {
+            const buf = await generateImage({ prompt: prompt || 'A simple, friendly app logo: a flat vector mark centered on a solid background, no text.' });
+            return { ok: true, dataUrl: `data:image/png;base64,${buf.toString('base64')}` };
+        } catch (err) {
+            return { ok: false, error: String(err?.message || err) };
+        }
+    });
+    // Generate straight into the project (used by the AI's [[NB_IMAGE]] marker).
+    ipcMain.handle('image:generate', async (_e, { cwd, prompt, path, size }) => {
+        try {
+            if (!cwd || !path || !prompt) return { ok: false, error: 'Missing cwd, path or prompt.' };
+            const target = resolve(join(cwd, path));
+            if (target !== resolve(cwd) && !target.startsWith(resolve(cwd) + '\\') && !target.startsWith(resolve(cwd) + '/')) {
+                return { ok: false, error: 'The image path escapes the project.' };
+            }
+            const buf = await generateImage({ prompt, size });
+            mkdirSync(dirname(target), { recursive: true });
+            writeFileSync(target, buf);
+            return { ok: true, path };
+        } catch (err) {
+            return { ok: false, error: String(err?.message || err) };
+        }
+    });
     ipcMain.handle('shell:open', (_e, url) => shell.openExternal(url));
     ipcMain.handle('shell:reveal', (_e, path) => shell.openPath(path));
     ipcMain.handle('app:locale', () => app.getLocale()); // e.g. "pt-BR" — for the first-run language guess
@@ -121,6 +161,42 @@ app.whenReady().then(async () => {
             if (!existsSync(target)) return { ok: true };
         }
         return { ok: false, path };
+    });
+
+    // Attach a user-supplied logo: copy a PNG into src-tauri/icons/logo.png, the
+    // exact source `php artisan nativeblade:icon` reads to generate every platform
+    // icon. Returns the pixel size so the caller can warn if it isn't 1024×1024.
+    ipcMain.handle('apps:attach-logo', async (_e, { cwd }) => {
+        if (!cwd) return { ok: false };
+        const picked = await dialog.showOpenDialog(mainWindow, {
+            title: 'Choose your app logo (1024×1024 PNG)',
+            filters: [{ name: 'PNG image', extensions: ['png'] }],
+            properties: ['openFile'],
+        });
+        if (picked.canceled || !picked.filePaths?.[0]) return { ok: false, canceled: true };
+        try {
+            const src = picked.filePaths[0];
+            const size = pngSize(src);
+            const iconsDir = join(cwd, 'src-tauri', 'icons');
+            mkdirSync(iconsDir, { recursive: true });
+            copyFileSync(src, join(iconsDir, 'logo.png'));
+            return { ok: true, width: size?.width ?? null, height: size?.height ?? null };
+        } catch (err) {
+            return { ok: false, error: String(err?.message || err) };
+        }
+    });
+
+    // The app's logo for the home list, as a data URL. Prefer a small generated
+    // icon (fast); fall back to the 1024 source if that's all there is yet.
+    ipcMain.handle('apps:logo', (_e, { cwd }) => {
+        if (!cwd) return null;
+        for (const rel of ['src-tauri/icons/128x128.png', 'src-tauri/icons/icon.png', 'src-tauri/icons/logo.png']) {
+            const p = join(cwd, ...rel.split('/'));
+            if (existsSync(p)) {
+                try { return `data:image/png;base64,${readFileSync(p).toString('base64')}`; } catch { /* try next */ }
+            }
+        }
+        return null;
     });
 
     // Write a secret straight into the app's .env — never through the chat log.

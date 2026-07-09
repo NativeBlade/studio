@@ -9,6 +9,13 @@ contextBridge.exposeInMainWorld('studio', {
     engines: {
         list: () => ipcRenderer.invoke('engines:list'),
     },
+    image: {
+        providers: () => ipcRenderer.invoke('image:providers'),
+        get: () => ipcRenderer.invoke('image:get'),
+        set: (cfg) => ipcRenderer.invoke('image:set', cfg),
+        test: (payload) => ipcRenderer.invoke('image:test', payload),
+        generate: (payload) => ipcRenderer.invoke('image:generate', payload),
+    },
     shell: {
         open: (url) => ipcRenderer.invoke('shell:open', url),
         reveal: (path) => ipcRenderer.invoke('shell:reveal', path),
@@ -17,6 +24,8 @@ contextBridge.exposeInMainWorld('studio', {
     apps: {
         ensureDir: (slug) => ipcRenderer.invoke('apps:ensure-dir', slug),
         delete: (payload) => ipcRenderer.invoke('apps:delete', payload),
+        attachLogo: (payload) => ipcRenderer.invoke('apps:attach-logo', payload),
+        logo: (payload) => ipcRenderer.invoke('apps:logo', payload),
     },
     chat: {
         send: (payload) => ipcRenderer.invoke('chat:send', payload),

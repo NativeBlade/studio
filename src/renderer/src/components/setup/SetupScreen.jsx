@@ -4,6 +4,7 @@ import { useEnvStore } from '../../stores/env.js';
 import { useSettingsStore } from '../../stores/settings.js';
 import { useT } from '../../lib/i18n.js';
 import { Button } from '../ui/Button.jsx';
+import { ImageProviderCard } from './ImageProviderCard.jsx';
 
 /**
  * Choose your AI: which CLI drives the Studio (the user's own subscription,
@@ -94,6 +95,8 @@ export function SetupScreen({ onClose }) {
                         </div>
                     </div>
                 )}
+
+                {ready && <ImageProviderCard />}
 
                 <div style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
                     {!ready ? (

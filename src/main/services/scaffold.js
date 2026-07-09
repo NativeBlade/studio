@@ -72,12 +72,16 @@ export async function scaffoldApp({ dir, appInfo, env, emit }) {
     writeContextFiles(dir, appInfo, env);
 
     // Local git: every checkpoint is a commit, so rollback is a plain reset.
-    // Best-effort — a lay user has no git identity (or no git at all), so this
-    // must never block a build: the identity is set local to the repo, and any
-    // failure downgrades to a visible note instead of an error.
+    // We only INIT the repo here (identity + no signing) and let the AI make the
+    // first commit at the end of the build — one commit per request, no throwaway
+    // "initial scaffold" checkpoint. Best-effort: a lay user has no git identity
+    // (or no git at all), so the identity is set local to the repo and any failure
+    // downgrades to a visible note instead of an error. `commit.gpgsign false` is
+    // local so the AI's commit never hangs on a GPG passphrase prompt, even if the
+    // user has signing on globally (a headless commit would wait forever for it).
     if (!existsSync(join(dir, '.git'))) {
-        const gitCmd = 'git init -q && git config user.name "NativeBlade Studio" && git config user.email "studio@nativeblade.dev" && git add -A && git commit -q -m "Initial NativeBlade scaffold"';
-        emit({ type: 'tool', name: 'Bash', label: 'Saving the first checkpoint', detail: gitCmd });
+        const gitCmd = 'git init -q && git config user.name "NativeBlade Studio" && git config user.email "studio@nativeblade.dev" && git config commit.gpgsign false';
+        emit({ type: 'tool', name: 'Bash', label: 'Preparing version history', detail: gitCmd });
         const { code } = await run(gitCmd, dir);
         if (code !== 0) emit({ type: 'tool', name: 'Bash', label: 'Checkpoints unavailable on this machine — continuing without them', detail: null });
     }

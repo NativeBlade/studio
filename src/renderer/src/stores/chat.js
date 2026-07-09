@@ -6,7 +6,7 @@ import { useSettingsStore } from './settings.js';
 import { usePreviewStore } from './preview.js';
 import { useConsoleStore, formatConsoleNote } from './console.js';
 import { planPrompt, buildPrompt, parsePlan } from '../lib/plan.js';
-import { parseSecrets, stripRebuild } from '../lib/secret.js';
+import { parseSecrets, stripRebuild, parseImages } from '../lib/secret.js';
 import { translate } from '../lib/i18n.js';
 
 // System messages are rendered as chat, not routed through a React hook, so
@@ -154,6 +154,62 @@ export const useChatStore = create(persist((set, get) => ({
         launch(set, app, `The value for ${message.spec.env} has been saved to .env. Continue building.`, 'chat');
     },
 
+    // Attach a logo: copy the PNG to src-tauri/icons/logo.png (via a native file
+    // picker) and kick off a turn telling the AI to regenerate the icons and use
+    // it in the splash. The AI has the file because it lives in the project.
+    applyLogo: async (app) => {
+        if (!app?.path) return;
+        const res = await window.studio.apps.attachLogo({ cwd: app.path });
+        if (!res?.ok) {
+            if (res?.error) pushMsg(set, app.id, { role: 'error', text: res.error });
+            return; // user canceled the picker → do nothing
+        }
+        const off = res.width && (res.width !== 1024 || res.height !== 1024);
+        const warn = off ? ` ${tt('chat.logoWarn', { w: res.width, h: res.height })}` : '';
+        pushMsg(set, app.id, { role: 'system', text: `${tt('chat.logoAdded')}${warn}` });
+        const dimNote = off
+            ? ` (it is ${res.width}x${res.height}, not a square 1024x1024 — briefly tell the user a square 1024px logo gives the sharpest icons)`
+            : '';
+        const prompt = `The user attached their app logo as a PNG at \`src-tauri/icons/logo.png\`${dimNote}. Apply it now: run \`php artisan nativeblade:icon\` to regenerate every platform icon from it, and use this same logo in the loading splash at \`resources/js/index.html\` (replace any placeholder mark; keep the splash mechanics intact — do not remove #splash, #app, or the two scripts).`;
+        await launch(set, app, prompt, 'chat');
+    },
+
+    // Generate the app logo with the configured image provider, straight into
+    // the icon source, then have the AI regenerate the icons + use it in the splash.
+    generateLogo: async (app, prompt) => {
+        if (!app?.path || !prompt?.trim()) return;
+        pushMsg(set, app.id, { role: 'system', text: tt('chat.logoGenerating') });
+        const r = await window.studio.image.generate({ cwd: app.path, prompt: prompt.trim(), path: 'src-tauri/icons/logo.png', size: '1024x1024' });
+        if (!r?.ok) {
+            pushMsg(set, app.id, { role: 'error', text: tt('chat.imageFail', { error: r?.error || '' }) });
+            return;
+        }
+        pushMsg(set, app.id, { role: 'system', text: tt('chat.logoAdded') });
+        const applyPrompt = `A new app logo was generated as a 1024x1024 PNG at \`src-tauri/icons/logo.png\`. Apply it now: run \`php artisan nativeblade:icon\` to regenerate every platform icon from it, and use this same logo in the loading splash at \`resources/js/index.html\` (replace any placeholder mark; keep the splash mechanics intact — do not remove #splash, #app, or the two scripts).`;
+        await launch(set, app, applyPrompt, 'chat');
+    },
+
+    // The AI requested one or more generated images ([[NB_IMAGE]]): create each
+    // with the user's configured provider, save it into the project, then hand
+    // control back so the AI continues the build using them.
+    generateImages: async (appId, images) => {
+        const app = useAppsStore.getState().apps.find((a) => a.id === appId);
+        if (!app?.path) return;
+        const notes = [];
+        for (const img of images) {
+            pushMsg(set, appId, { role: 'system', text: tt('chat.imageGen', { path: img.path }) });
+            const r = await window.studio.image.generate({ cwd: app.path, prompt: img.prompt, path: img.path, size: img.size });
+            if (r?.ok) notes.push(`saved to ${img.path}`);
+            else {
+                notes.push(`FAILED for ${img.path}: ${r?.error || 'unknown error'}`);
+                pushMsg(set, appId, { role: 'error', text: tt('chat.imageFail', { error: r?.error || '' }) });
+            }
+        }
+        usePreviewStore.getState().reload(appId);
+        const note = `[Image generation results: ${notes.join('; ')}.] Continue the build using the images that were saved. If any failed, proceed without it or briefly tell the user.`;
+        await launch(set, app, note, 'chat');
+    },
+
     // Stop → npm run build → start, so php-wasm reloads with the new CSS.
     triggerRebuild: async (appId) => {
         const app = useAppsStore.getState().apps.find((a) => a.id === appId);
@@ -166,6 +222,7 @@ export const useChatStore = create(persist((set, get) => ({
         const { appId } = evt;
         let rebuild = false;
         let doneMode = null;
+        let images = null; // [[NB_IMAGE]] requests to fulfill after this turn ends
         set((s) => {
             const list = [...(s.byApp[appId] ?? [])];
             const gi = list.findLastIndex((m) => m.role === 'group');
@@ -194,11 +251,14 @@ export const useChatStore = create(persist((set, get) => ({
                         list.push({ id: nextId++, role: 'plan', plan: parsePlan(lastText?.text, app ?? { name: 'your app' }), approved: false });
                     } else if (lastText) {
                         group.items = group.items.filter((it) => it !== lastText);
-                        // The AI may end its turn asking for a user-only secret
-                        // and/or flagging a CSS rebuild; render/strip the markers.
-                        const { secrets, stripped } = parseSecrets(lastText.text);
-                        const cleaned = stripRebuild(stripped);
+                        // The AI may end its turn asking for a user-only secret,
+                        // requesting a generated image, and/or flagging a CSS
+                        // rebuild; render/strip each marker.
+                        const { secrets, stripped: s1 } = parseSecrets(lastText.text);
+                        const { images: imgs, stripped: s2 } = parseImages(s1);
+                        const cleaned = stripRebuild(s2);
                         rebuild = cleaned.rebuild;
+                        images = imgs.length ? imgs : null;
                         if (cleaned.text) list.push({ id: nextId++, role: 'ai', text: cleaned.text });
                         for (const spec of secrets) list.push({ id: nextId++, role: 'secret', spec, resolved: false });
                     }
@@ -225,8 +285,11 @@ export const useChatStore = create(persist((set, get) => ({
         // is the baseline (nothing earlier to roll back to), so only 'chat'
         // turns get one. Also handle a CSS rebuild the AI flagged.
         if (evt.type === 'done') {
-            if (doneMode === 'chat') get().recordCheckpoint(appId);
+            // Skip the checkpoint when images are pending — the turn continues
+            // in generateImages, which commits (and checkpoints) at its end.
+            if (doneMode === 'chat' && !images) get().recordCheckpoint(appId);
             if (rebuild) get().triggerRebuild(appId);
+            if (images) get().generateImages(appId, images);
         }
     },
 }), {
@@ -262,6 +325,19 @@ async function launch(set, app, prompt, mode) {
         if (consoleNote) finalPrompt = `${consoleNote}\n\n${finalPrompt}`;
     }
     if (restoreNote) finalPrompt = `${restoreNote}\n\n${finalPrompt}`;
+
+    // When image generation is configured, tell the AI it can request images.
+    // Not during planning — the plan shouldn't spend the user's image budget.
+    if (mode !== 'plan') {
+        const img = await window.studio.image.get().catch(() => null);
+        if (img?.hasKey) {
+            const note = `[Image generation is ENABLED — you can create real raster images (logos, icons, illustrations, backgrounds). Emit exactly ONE marker per image and STOP; the Studio generates it and then tells you to continue:
+[[NB_IMAGE]]{"prompt":"a detailed description of the image","path":"public/images/name.png","size":"1024x1024"}[[/NB_IMAGE]]
+APP ICON (important): the icon shown in the app list and on the device is SEPARATE from the loading splash, and it comes only from a real PNG. To give the app its own icon instead of the default NativeBlade mark, generate a 1024x1024 logo to "src-tauri/icons/logo.png" and then run \`php artisan nativeblade:icon\`. Do this as part of setting up the app's identity, not only when asked — an inline SVG in the splash does NOT change the app icon.
+Keep any text before a marker and put nothing after it. Only generate images the design needs — never invent extras.]`;
+            finalPrompt = `${note}\n\n${finalPrompt}`;
+        }
+    }
 
     const { engine, model } = useSettingsStore.getState();
     window.studio.chat.send({

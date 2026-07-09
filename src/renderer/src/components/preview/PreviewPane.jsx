@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import { Hand, Paintbrush, QrCode, Rocket, RotateCcw, RotateCw, Share2, Smartphone } from 'lucide-react';
+import { Hand, Image, Paintbrush, QrCode, Rocket, RotateCcw, RotateCw, Share2, Smartphone } from 'lucide-react';
 import { useChatStore } from '../../stores/chat.js';
 import { usePreviewStore } from '../../stores/preview.js';
 import { useConsoleStore } from '../../stores/console.js';
@@ -9,6 +9,7 @@ import { devicesForPlatforms, resolveDevice, safeAreaCss } from '../../lib/devic
 import { Modal } from '../ui/Modal.jsx';
 import { ShareModal } from './ShareModal.jsx';
 import { PublishModal } from './PublishModal.jsx';
+import { LogoModal } from './LogoModal.jsx';
 import { AppStoreLinks } from './AppStoreLinks.jsx';
 import logo from '../../assets/nb-logo.png';
 
@@ -33,6 +34,7 @@ export function PreviewPane({ app, preview }) {
     const [qrOpen, setQrOpen] = useState(false);
     const [shareOpen, setShareOpen] = useState(false);
     const [publishOpen, setPublishOpen] = useState(false);
+    const [logoOpen, setLogoOpen] = useState(false);
     const busy = useChatStore((s) => s.busy[app.id] ?? false);
     const nonce = usePreviewStore((s) => s.nonce[app.id] ?? 0); // bumped on checkpoint restore
     const t = useT();
@@ -77,6 +79,9 @@ export function PreviewPane({ app, preview }) {
                         <button onClick={() => setShareOpen(true)} className="nb-btn" title={t('preview.share')} style={{ display: 'flex', alignItems: 'center', gap: 6, height: 30, borderRadius: 9, padding: '0 10px', fontSize: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#9aa0a8' }}>
                             <Share2 size={13} />{t('preview.shareBtn')}
                         </button>
+                        <button onClick={() => setLogoOpen(true)} disabled={busy} className="nb-btn" title={t('preview.logo')} style={{ display: 'flex', alignItems: 'center', gap: 6, height: 30, borderRadius: 9, padding: '0 10px', fontSize: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#9aa0a8', opacity: busy ? 0.5 : 1 }}>
+                            <Image size={13} />{t('preview.logoBtn')}
+                        </button>
                         <button onClick={() => window.studio.preview.rebuild({ appId: app.id, cwd: app.path })} className="nb-btn" title={t('preview.refresh')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 9, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#9aa0a8' }}><Paintbrush size={13} /></button>
                         <button onClick={() => setPublishOpen(true)} className="nb-btn" title={t('preview.publish')} style={{ display: 'flex', alignItems: 'center', gap: 6, height: 30, borderRadius: 9, padding: '0 11px', fontSize: 12, fontWeight: 600, color: '#fff', border: 'none', background: 'linear-gradient(180deg,#ff9d2e,#f97316)' }}>
                             <Rocket size={13} />{t('preview.publishBtn')}
@@ -108,6 +113,7 @@ export function PreviewPane({ app, preview }) {
             <QrModal open={qrOpen} onClose={() => setQrOpen(false)} lanUrl={lanUrl} appName={app.name} />
             <ShareModal open={shareOpen} onClose={() => setShareOpen(false)} app={app} targetUrl={url} />
             <PublishModal open={publishOpen} onClose={() => setPublishOpen(false)} />
+            <LogoModal open={logoOpen} onClose={() => setLogoOpen(false)} app={app} />
         </div>
     );
 }
@@ -120,6 +126,7 @@ function DeviceViewport({ appId, src, device }) {
     const webviewRef = useRef(null);
     const wcIdRef = useRef(null);
     const cssKeyRef = useRef(null);
+    const failRetriesRef = useRef(0); // transient load failures during a server restart
     const [scale, setScale] = useState(1);
 
     const screenW = device.landscape ? device.height : device.width;
@@ -169,7 +176,17 @@ function DeviceViewport({ appId, src, device }) {
         const onReady = () => {
             wcIdRef.current = wv.getWebContentsId();
             cssKeyRef.current = null;
+            failRetriesRef.current = 0; // page loaded — reset the retry budget
             applyRef.current();
+        };
+        // A [[NB_REBUILD]] stops → builds → restarts the dev server, so the
+        // webview can hit the URL while it's briefly down (ERR_FAILED). Retry a
+        // few times with backoff instead of leaving a dead page. Ignore aborts
+        // (-3 ERR_ABORTED = a newer navigation superseded this one) and subframes.
+        const onFailLoad = (e) => {
+            if (!e.isMainFrame || e.errorCode === -3 || failRetriesRef.current >= 6) return;
+            failRetriesRef.current += 1;
+            setTimeout(() => { try { wv.reload(); } catch { /* webview gone */ } }, 500 * failRetriesRef.current);
         };
         const onConsole = (e) => {
             // level is a string ('error'|'warning'|…) in newer Electron, a
@@ -192,10 +209,12 @@ function DeviceViewport({ appId, src, device }) {
         wv.addEventListener('did-start-loading', onStartLoading);
         wv.addEventListener('dom-ready', onReady);
         wv.addEventListener('console-message', onConsole);
+        wv.addEventListener('did-fail-load', onFailLoad);
         return () => {
             wv.removeEventListener('did-start-loading', onStartLoading);
             wv.removeEventListener('dom-ready', onReady);
             wv.removeEventListener('console-message', onConsole);
+            wv.removeEventListener('did-fail-load', onFailLoad);
             if (wcIdRef.current != null) window.studio.preview.stopEmulate(wcIdRef.current);
         };
         // Re-wire when the desktop⇄mobile branch swaps the <webview> element

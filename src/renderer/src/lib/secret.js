@@ -27,6 +27,31 @@ export function parseSecrets(text) {
     return { secrets, stripped };
 }
 
+const IMG_RE = /\[\[NB_IMAGE\]\]\s*(\{[\s\S]*?\})\s*\[\[\/NB_IMAGE\]\]/g;
+
+/**
+ * The AI requests a generated image (logo, illustration…) by emitting a marker
+ * with a prompt + a project-relative destination path; the Studio calls the
+ * image provider, saves the PNG there, and tells the AI to continue:
+ *
+ *   [[NB_IMAGE]]{"prompt":"a flat fox logo","path":"src-tauri/icons/logo.png","size":"1024x1024"}[[/NB_IMAGE]]
+ */
+export function parseImages(text) {
+    const images = [];
+    let stripped = text || '';
+    for (const m of (text || '').matchAll(IMG_RE)) {
+        try {
+            const spec = JSON.parse(m[1]);
+            const path = typeof spec?.path === 'string' ? spec.path.replace(/^[\\/]+/, '') : '';
+            if (spec && typeof spec.prompt === 'string' && spec.prompt.trim() && path && !path.includes('..')) {
+                images.push({ prompt: spec.prompt, path, size: typeof spec.size === 'string' ? spec.size : '1024x1024' });
+            }
+        } catch { /* malformed marker — ignore */ }
+    }
+    if (images.length) stripped = stripped.replace(IMG_RE, '').replace(/\n{3,}/g, '\n\n').trim();
+    return { images, stripped };
+}
+
 const REBUILD_RE = /\[\[NB_REBUILD\]\]/g;
 
 /**
