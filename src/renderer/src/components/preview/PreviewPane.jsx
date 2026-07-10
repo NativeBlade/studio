@@ -112,7 +112,7 @@ export function PreviewPane({ app, preview }) {
 
             <QrModal open={qrOpen} onClose={() => setQrOpen(false)} lanUrl={lanUrl} appName={app.name} />
             <ShareModal open={shareOpen} onClose={() => setShareOpen(false)} app={app} targetUrl={url} />
-            <PublishModal open={publishOpen} onClose={() => setPublishOpen(false)} />
+            <PublishModal open={publishOpen} onClose={() => setPublishOpen(false)} app={app} />
             <LogoModal open={logoOpen} onClose={() => setLogoOpen(false)} app={app} />
         </div>
     );

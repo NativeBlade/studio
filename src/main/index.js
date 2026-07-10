@@ -11,6 +11,7 @@ import { tunnelStatus, tunnelInstall, startTunnel, stopTunnel, currentTunnel } f
 import { killAllSync } from './services/child-registry.js';
 import { fixPath } from './services/fix-path.js';
 import { setupUpdater } from './services/updater.js';
+import { publishStatus, publishLogout, publishLogin, publishApps, publishVersion, publishUpload } from './services/publish.js';
 
 /** Read a PNG's pixel dimensions from its IHDR header (no image lib needed). */
 function pngSize(path) {
@@ -341,6 +342,16 @@ app.whenReady().then(async () => {
     ipcMain.handle('git:reset', (_e, { cwd, sha }) => new Promise((res) => {
         execFile('git', ['reset', '--hard', sha], { cwd, windowsHide: true }, (err) => res({ ok: !err }));
     }));
+
+    // Publishing to nativeblade.dev (device-code login, list, zip + upload).
+    const publishEmit = (event) => (p) => { if (!event.sender.isDestroyed()) event.sender.send('publish:event', p); };
+    ipcMain.handle('publish:status', () => publishStatus());
+    ipcMain.handle('publish:logout', () => publishLogout());
+    ipcMain.handle('publish:apps', () => publishApps());
+    ipcMain.handle('publish:version', (_e, cwd) => publishVersion(cwd));
+    ipcMain.handle('publish:login', (event) => publishLogin({ emit: publishEmit(event) }));
+    ipcMain.handle('publish:upload', (event, { slug, cwd, version }) =>
+        publishUpload({ slug, projectDir: cwd, version, emit: publishEmit(event) }));
 
     createWindow();
     setupUpdater(() => mainWindow);

@@ -14,6 +14,7 @@
         "icons": "electron-icon-builder --input=./src/renderer/src/assets/nb-logo.png --output=./build --flatten"
     },
     "dependencies": {
+        "archiver": "^7.0.1",
         "electron-updater": "^6.8.9",
         "lucide-react": "^1.23.0",
         "qrcode": "^1.5.4",

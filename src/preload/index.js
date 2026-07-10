@@ -55,6 +55,19 @@ contextBridge.exposeInMainWorld('studio', {
         head: (cwd) => ipcRenderer.invoke('git:head', cwd),
         reset: (payload) => ipcRenderer.invoke('git:reset', payload),
     },
+    publish: {
+        status: () => ipcRenderer.invoke('publish:status'),
+        login: () => ipcRenderer.invoke('publish:login'),
+        logout: () => ipcRenderer.invoke('publish:logout'),
+        apps: () => ipcRenderer.invoke('publish:apps'),
+        version: (cwd) => ipcRenderer.invoke('publish:version', cwd),
+        upload: (payload) => ipcRenderer.invoke('publish:upload', payload),
+        onEvent: (cb) => {
+            const handler = (_e, payload) => cb(payload);
+            ipcRenderer.on('publish:event', handler);
+            return () => ipcRenderer.removeListener('publish:event', handler);
+        },
+    },
     updates: {
         onStatus: (cb) => {
             const handler = (_e, payload) => cb(payload);
