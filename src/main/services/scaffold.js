@@ -61,7 +61,15 @@ export async function scaffoldApp({ dir, appInfo, env, emit }) {
         if (!await step('Adding NativeBlade (latest)', 'composer require nativeblade/nativeblade --no-interaction')) return false;
 
         const name = String(appInfo.name || 'App').replace(/"/g, "'");
-        const id = 'com.studio.' + String(appInfo.slug || 'app').replace(/[^a-z0-9]/g, '');
+        // Reverse-DNS id: com.<company>.<app>. The company namespaces the id so
+        // two users' apps never collide; the slug is already unique per library.
+        // Each segment is lowercased to alphanumerics and made to start with a
+        // letter (valid on both Android packages and iOS bundle ids).
+        const seg = (v, fb) => {
+            const s = String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            return (!s || /^[0-9]/.test(s)) ? fb + s : s;
+        };
+        const id = `com.${seg(appInfo.company, 'co')}.${seg(appInfo.slug, 'app')}`;
         if (!await step('Installing NativeBlade', `php artisan nativeblade:install --name="${name}" --id="${id}" --template=blank --no-interaction`)) return false;
 
         // The live preview is `nativeblade:dev --platform=browser`; it just needs

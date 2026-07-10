@@ -9,11 +9,13 @@ export const useSettingsStore = create(
             model: null, // engine-specific model id; null = the CLI's default
             audioLang: undefined, // Whisper language name; undefined = never asked yet
             uiLang: undefined, // interface language 'en'|'pt'|'es'; undefined = ask on first run
+            company: '', // reverse-DNS namespace for app ids (com.<company>.<app>); remembered across apps
 
             setEngine: (engine) => set({ engine, model: null }),
             setModel: (model) => set({ model }),
             setAudioLang: (audioLang) => set({ audioLang }),
             setUiLang: (uiLang) => set({ uiLang }),
+            setCompany: (company) => set({ company }),
         }),
         { name: 'studio-settings' },
     ),

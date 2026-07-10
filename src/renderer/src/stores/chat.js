@@ -347,6 +347,6 @@ Keep any text before a marker and put nothing after it. Only generate images the
         engine,
         model,
         scaffold: mode === 'build', // Approve & build → the Studio scaffolds first
-        app: { name: app.name, slug: app.slug, description: app.description, platforms: app.platforms },
+        app: { name: app.name, slug: app.slug, company: app.company, description: app.description, platforms: app.platforms },
     });
 }

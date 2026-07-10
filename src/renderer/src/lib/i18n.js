@@ -41,6 +41,7 @@ const en = {
     'launcher.delete.failed.open': 'Open folder',
 
     'newapp.header': 'New app',
+    'newapp.company': 'Company or your name',
     'newapp.name': 'App name (e.g. FitTrack)',
     'newapp.desc': "Describe what it does, who it's for, and the key screens. The more detail, the better the first design.",
     'newapp.buildFor': 'Build for:',
@@ -249,6 +250,7 @@ const pt = {
     'launcher.delete.failed.open': 'Abrir pasta',
 
     'newapp.header': 'Novo app',
+    'newapp.company': 'Empresa ou seu nome',
     'newapp.name': 'Nome do app (ex.: FitTrack)',
     'newapp.desc': 'Descreva o que ele faz, pra quem é e as telas principais. Quanto mais detalhe, melhor o primeiro desenho.',
     'newapp.buildFor': 'Construir para:',
@@ -457,6 +459,7 @@ const es = {
     'launcher.delete.failed.open': 'Abrir carpeta',
 
     'newapp.header': 'Nueva app',
+    'newapp.company': 'Empresa o tu nombre',
     'newapp.name': 'Nombre de la app (ej.: FitTrack)',
     'newapp.desc': 'Describe qué hace, para quién es y las pantallas clave. Cuanto más detalle, mejor el primer diseño.',
     'newapp.buildFor': 'Crear para:',
