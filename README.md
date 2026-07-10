@@ -4,6 +4,8 @@ Build real mobile and desktop apps just by talking to an AI. You describe what y
 
 You do not need to know how to code.
 
+![NativeBlade Studio — describe your app and start building](mkt/1.png)
+
 ## ⬇️ Download
 
 Get the latest NativeBlade Studio for your system:
@@ -69,6 +71,8 @@ Every message you and the AI send has a small Copy button. Hover over it to copy
 
 ## The live preview
 
+![Chat on the left, your real app running in a live phone preview on the right](mkt/2.png)
+
 On the right you see your app inside a phone.
 
 * Switch between iPhone and Android to see how it looks on each.
@@ -84,9 +88,17 @@ For the best experience, install the free NativeBlade app from Google Play or th
 
 ## Show it to someone far away
 
+![Share — a public link and QR code anyone can open](mkt/4.png)
+
 Click Share. The Studio can create a temporary public link that anyone can open from anywhere, even off your WiFi. The first time, it asks permission to download a small helper. After that you get a link and a QR code to send.
 
 This link is live only while you keep it open, and it loads the preview, so it can feel slow over the internet. It is great for a quick demo.
+
+## Publish it for real
+
+When the app is ready, click Publish. Sign in to your nativeblade.dev account (a short code confirms it is really you), pick the app, set a version, and the Studio uploads it. Then head to the portal and build the real, installable app whenever you want.
+
+![Publish your app — pick the app, set a version, upload](mkt/3.png)
 
 ## Talk instead of type
 
@@ -101,5 +113,9 @@ Every round of changes is saved as a checkpoint in the chat. If a change goes wr
 ## Your apps
 
 Everything you make lives on your computer, inside a NativeBlade Studio folder in your Documents. On the home screen, each app has an Explore button to open its folder, and a delete button if you no longer want it.
+
+It is real code — a full Laravel + NativeBlade project you own and can open in any editor.
+
+![The generated project on disk — a real Laravel + NativeBlade codebase](mkt/5.png)
 
 Have fun building.
