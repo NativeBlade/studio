@@ -1,7 +1,7 @@
 {
     "name": "nativeblade-studio",
     "productName": "NativeBlade Studio",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "description": "Build NativeBlade apps with AI — locally, driven by your own Claude Code CLI subscription.",
     "author": "NativeBlade <contact@nativeblade.dev>",
     "private": true,
