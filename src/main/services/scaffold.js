@@ -83,6 +83,7 @@ export async function updateFramework({ dir, emit }) {
             '',
             migrate.output.trim().slice(-1200) || '(no output)',
             '',
+            'The Studio already rebuilt the app assets and restarted the preview afterwards, so do NOT run a build or emit [[NB_REBUILD]] for the update itself.',
             'Take this into account: if the update changed anything the app relies on, fix it as part of this request.',
         ].join('\n'),
     };

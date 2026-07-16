@@ -250,7 +250,10 @@ app.whenReady().then(async () => {
         let updatedAt = null;
         if (age > FRAMEWORK_MAX_AGE) {
             const { ok, note } = await updateFramework({ dir: cwd, emit });
-            if (note) text = `${note}\n\n${text}`;
+            if (note) {
+                text = `${note}\n\n${text}`;
+                await rebuildPreview({ appId, dir: cwd, emit }); // new version ships new assets
+            }
             if (ok) updatedAt = new Date().toISOString();
         }
 
@@ -258,10 +261,12 @@ app.whenReady().then(async () => {
         return { frameworkUpdatedAt: updatedAt };
     });
 
-    // Same update on demand, from the top bar. The note goes back to the
-    // renderer, which rides it along on the user's next request.
+    // The same update on demand, from the preview toolbar. The note goes back to
+    // the renderer, which rides it along on the user's next request.
     ipcMain.handle('framework:update', async (event, { appId, cwd }) => {
-        const { ok, note } = await updateFramework({ dir: cwd, emit: safeEmit(event.sender, appId) });
+        const emit = safeEmit(event.sender, appId);
+        const { ok, note } = await updateFramework({ dir: cwd, emit });
+        if (note) await rebuildPreview({ appId, dir: cwd, emit });
         return { ok, note, frameworkUpdatedAt: ok ? new Date().toISOString() : null };
     });
 
