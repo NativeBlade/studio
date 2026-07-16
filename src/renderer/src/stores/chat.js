@@ -128,6 +128,26 @@ export const useChatStore = create(persist((set, get) => ({
         });
     },
 
+    // Manual "Update NativeBlade". Same deterministic path as the weekly refresh,
+    // in its own progress group so the user watches the commands run, and it
+    // leaves a note the next request rides along — the AI has to know the
+    // framework moved under it.
+    updateFramework: async (app) => {
+        if (get().busy[app.id] || !app.path) return;
+        set((s) => ({
+            byApp: { ...s.byApp, [app.id]: [...(s.byApp[app.id] ?? []), { id: nextId++, role: 'group', items: [], startedAt: Date.now(), endedAt: null }] },
+            busy: { ...s.busy, [app.id]: true },
+        }));
+        const res = await window.studio.framework.update({ appId: app.id, cwd: app.path }).catch(() => null);
+        if (res?.ok) useAppsStore.getState().setFrameworkUpdated(app.id, res.frameworkUpdatedAt);
+        if (res?.note) pendingNote[app.id] = res.note;
+        // No agent ran, so no `done` event is coming to close the group for us.
+        set((s) => ({
+            busy: { ...s.busy, [app.id]: false },
+            byApp: { ...s.byApp, [app.id]: (s.byApp[app.id] ?? []).map((m) => (m.role === 'group' && !m.endedAt ? { ...m, endedAt: Date.now() } : m)) },
+        }));
+    },
+
     restore: async (app, cp) => {
         const res = await window.studio.git.reset({ cwd: app.path, sha: cp.sha });
         if (!res?.ok) {
@@ -340,7 +360,7 @@ Keep any text before a marker and put nothing after it. Only generate images the
     }
 
     const { engine, model, ollamaContext } = useSettingsStore.getState();
-    window.studio.chat.send({
+    const res = await window.studio.chat.send({
         appId: app.id,
         cwd,
         text: finalPrompt,
@@ -348,6 +368,10 @@ Keep any text before a marker and put nothing after it. Only generate images the
         model,
         context: engine === 'ollama' ? ollamaContext : null,
         scaffold: mode === 'build', // Approve & build → the Studio scaffolds first
+        frameworkUpdatedAt: app.frameworkUpdatedAt ?? null, // main decides if it's stale
         app: { name: app.name, slug: app.slug, company: app.company, description: app.description, platforms: app.platforms },
     });
+    // Only set when the Studio actually moved the framework forward, so a failed
+    // update is retried on the next request instead of waiting another week.
+    if (res?.frameworkUpdatedAt) useAppsStore.getState().setFrameworkUpdated(app.id, res.frameworkUpdatedAt);
 }

@@ -5,7 +5,7 @@ import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, copyFileSyn
 import { checkEnvironment } from './services/env.js';
 import { createSession, listEngines } from './services/engines.js';
 import { imageStatus, setImageConfig, generateImage, IMAGE_PROVIDERS } from './services/image.js';
-import { scaffoldApp } from './services/scaffold.js';
+import { scaffoldApp, updateFramework } from './services/scaffold.js';
 import { startPreview, stopPreview, rebuildPreview } from './services/dev-server.js';
 import { tunnelStatus, tunnelInstall, startTunnel, stopTunnel, currentTunnel } from './services/tunnel.js';
 import { killAllSync } from './services/child-registry.js';
@@ -220,7 +220,11 @@ app.whenReady().then(async () => {
         return { ok: true };
     });
 
-    ipcMain.handle('chat:send', async (event, { appId, cwd, text, app: appInfo, scaffold, engine, model, context }) => {
+    // How long an app can sit before the Studio refreshes NativeBlade on the
+    // next request. Long enough that day-to-day work never pays for it.
+    const FRAMEWORK_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+
+    ipcMain.handle('chat:send', async (event, { appId, cwd, text, app: appInfo, scaffold, engine, model, context, frameworkUpdatedAt }) => {
         const emit = safeEmit(event.sender, appId);
         const key = `${engine ?? 'claude'}:${model ?? ''}:${context ?? ''}`;
         let entry = sessions.get(appId);
@@ -236,9 +240,29 @@ app.whenReady().then(async () => {
             const ok = await scaffoldApp({ dir: cwd, appInfo: appInfo ?? {}, env: await getEnv(), emit });
             if (!ok) return; // scaffold already emitted the error
             startPreview({ appId, dir: cwd, emit: safeEmit(event.sender, appId) });
+            return { frameworkUpdatedAt: new Date().toISOString() }; // scaffold installs the latest
+        }
+
+        // An app left alone for a week is probably on an old NativeBlade. Bring
+        // it forward before the AI works on it, and tell the AI what changed —
+        // the date only advances on a real update, so a failure retries later.
+        const age = frameworkUpdatedAt ? Date.now() - new Date(frameworkUpdatedAt).getTime() : Infinity;
+        let updatedAt = null;
+        if (age > FRAMEWORK_MAX_AGE) {
+            const { ok, note } = await updateFramework({ dir: cwd, emit });
+            if (note) text = `${note}\n\n${text}`;
+            if (ok) updatedAt = new Date().toISOString();
         }
 
         session.send(text);
+        return { frameworkUpdatedAt: updatedAt };
+    });
+
+    // Same update on demand, from the top bar. The note goes back to the
+    // renderer, which rides it along on the user's next request.
+    ipcMain.handle('framework:update', async (event, { appId, cwd }) => {
+        const { ok, note } = await updateFramework({ dir: cwd, emit: safeEmit(event.sender, appId) });
+        return { ok, note, frameworkUpdatedAt: ok ? new Date().toISOString() : null };
     });
 
     ipcMain.handle('chat:stop', (_e, appId) => {

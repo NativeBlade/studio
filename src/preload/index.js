@@ -27,6 +27,9 @@ contextBridge.exposeInMainWorld('studio', {
         attachLogo: (payload) => ipcRenderer.invoke('apps:attach-logo', payload),
         logo: (payload) => ipcRenderer.invoke('apps:logo', payload),
     },
+    framework: {
+        update: (payload) => ipcRenderer.invoke('framework:update', payload),
+    },
     chat: {
         send: (payload) => ipcRenderer.invoke('chat:send', payload),
         stop: (appId) => ipcRenderer.invoke('chat:stop', appId),

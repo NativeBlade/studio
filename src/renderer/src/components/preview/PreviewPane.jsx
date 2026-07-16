@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import { Hand, Image, Paintbrush, QrCode, Rocket, RotateCcw, RotateCw, Share2, Smartphone } from 'lucide-react';
+import { ArrowUpCircle, Hand, Image, Paintbrush, QrCode, Rocket, RotateCcw, RotateCw, Share2, Smartphone } from 'lucide-react';
 import { useChatStore } from '../../stores/chat.js';
 import { usePreviewStore } from '../../stores/preview.js';
 import { useConsoleStore } from '../../stores/console.js';
@@ -36,6 +36,7 @@ export function PreviewPane({ app, preview }) {
     const [publishOpen, setPublishOpen] = useState(false);
     const [logoOpen, setLogoOpen] = useState(false);
     const busy = useChatStore((s) => s.busy[app.id] ?? false);
+    const updateFramework = useChatStore((s) => s.updateFramework);
     const nonce = usePreviewStore((s) => s.nonce[app.id] ?? 0); // bumped on checkpoint restore
     const t = useT();
     const src = url ? `${url}?nb=${bust}-${nonce}` : null;
@@ -83,6 +84,7 @@ export function PreviewPane({ app, preview }) {
                             <Image size={13} />{t('preview.logoBtn')}
                         </button>
                         <button onClick={() => window.studio.preview.rebuild({ appId: app.id, cwd: app.path })} className="nb-btn" title={t('preview.refresh')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 9, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#9aa0a8' }}><Paintbrush size={13} /></button>
+                        <button onClick={() => updateFramework(app)} disabled={busy} className="nb-btn" title={t('preview.update')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 9, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#9aa0a8', opacity: busy ? 0.5 : 1 }}><ArrowUpCircle size={13} /></button>
                         <button onClick={() => setPublishOpen(true)} className="nb-btn" title={t('preview.publish')} style={{ display: 'flex', alignItems: 'center', gap: 6, height: 30, borderRadius: 9, padding: '0 11px', fontSize: 12, fontWeight: 600, color: '#fff', border: 'none', background: 'linear-gradient(180deg,#ff9d2e,#f97316)' }}>
                             <Rocket size={13} />{t('preview.publishBtn')}
                         </button>
