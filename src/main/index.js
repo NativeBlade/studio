@@ -3,7 +3,7 @@ import { execFile } from 'child_process';
 import { join, resolve, dirname } from 'path';
 import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, copyFileSync } from 'fs';
 import { checkEnvironment } from './services/env.js';
-import { createSession, ENGINES } from './services/engines.js';
+import { createSession, listEngines } from './services/engines.js';
 import { imageStatus, setImageConfig, generateImage, IMAGE_PROVIDERS } from './services/image.js';
 import { scaffoldApp } from './services/scaffold.js';
 import { startPreview, stopPreview, rebuildPreview } from './services/dev-server.js';
@@ -97,7 +97,7 @@ app.whenReady().then(async () => {
     await fixPath();
 
     ipcMain.handle('env:check', () => getEnv(true));
-    ipcMain.handle('engines:list', () => ENGINES);
+    ipcMain.handle('engines:list', () => listEngines());
 
     // Optional image generation (the user's own image-API key). The renderer
     // only ever learns the provider + whether a key is set, never the key.
@@ -220,12 +220,12 @@ app.whenReady().then(async () => {
         return { ok: true };
     });
 
-    ipcMain.handle('chat:send', async (event, { appId, cwd, text, app: appInfo, scaffold, engine, model }) => {
+    ipcMain.handle('chat:send', async (event, { appId, cwd, text, app: appInfo, scaffold, engine, model, context }) => {
         const emit = safeEmit(event.sender, appId);
-        const key = `${engine ?? 'claude'}:${model ?? ''}`;
+        const key = `${engine ?? 'claude'}:${model ?? ''}:${context ?? ''}`;
         let entry = sessions.get(appId);
         if (!entry || entry.key !== key) {
-            entry = { key, session: createSession({ engine, model, cwd, emit }) };
+            entry = { key, session: await createSession({ engine, model, cwd, emit, context }) };
             sessions.set(appId, entry);
         }
         const session = entry.session;

@@ -5,14 +5,16 @@ import { persist } from 'zustand/middleware';
 export const useSettingsStore = create(
     persist(
         (set) => ({
-            engine: 'claude', // claude | codex | grok
+            engine: 'claude', // claude | codex | grok | ollama
             model: null, // engine-specific model id; null = the CLI's default
+            ollamaContext: 32768, // local context window in tokens; bigger = more VRAM
             audioLang: undefined, // Whisper language name; undefined = never asked yet
             uiLang: undefined, // interface language 'en'|'pt'|'es'; undefined = ask on first run
             company: '', // reverse-DNS namespace for app ids (com.<company>.<app>); remembered across apps
 
             setEngine: (engine) => set({ engine, model: null }),
             setModel: (model) => set({ model }),
+            setOllamaContext: (ollamaContext) => set({ ollamaContext }),
             setAudioLang: (audioLang) => set({ audioLang }),
             setUiLang: (uiLang) => set({ uiLang }),
             setCompany: (company) => set({ company }),

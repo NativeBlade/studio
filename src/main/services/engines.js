@@ -4,6 +4,7 @@ import { join } from 'path';
 import { homedir, tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { register, killTree } from './child-registry.js';
+import { ollamaModels, ollamaContext, ollamaEnsureContext } from './ollama.js';
 
 const MCP_URL = 'https://mcp.nativeblade.dev';
 
@@ -45,9 +46,10 @@ function ensureGrokMcp() {
 }
 
 /**
- * The AI engines: each drives a coding CLI the user already subscribes to —
- * no API keys ever. Every adapter normalizes its CLI's output into the same
- * event stream: { text | tool | done | stopped | error }.
+ * The AI engines: each drives a coding CLI the user already subscribes to (or,
+ * for Ollama, a model on their own machine) — no API keys ever. Every adapter
+ * normalizes its CLI's output into the same event stream:
+ * { text | tool | done | stopped | error }.
  *
  * Model lists are curated here in ONE place — update as vendors ship.
  */
@@ -70,9 +72,10 @@ export const ENGINES = {
         loginHint: 'run `codex login` in a terminal',
         models: [
             { id: null, label: 'Default (recommended)' },
-            { id: 'gpt-5.5', label: 'GPT-5.5 (frontier)' },
-            { id: 'gpt-5.4', label: 'GPT-5.4' },
-            { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini' },
+            { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol (frontier)' },
+            { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra (balanced)' },
+            { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna (fast)' },
+            { id: 'gpt-5.5', label: 'GPT-5.5' },
         ],
     },
     grok: {
@@ -82,9 +85,19 @@ export const ENGINES = {
         // Real ids from `grok models`; Default (no -m) uses grok-composer-2.5-fast.
         models: [
             { id: null, label: 'Default (recommended)' },
-            { id: 'grok-composer-2.5-fast', label: 'Composer 2.5 Fast' },
-            { id: 'grok-build', label: 'Grok Build' },
+            { id: 'grok-4.5', label: 'Grok 4.5' },
+            { id: 'grok-composer-2.5-fast', label: 'Composer 2.5' },
         ],
+    },
+    ollama: {
+        name: 'Ollama (local)',
+        vendor: 'Local',
+        // No account, no login, no network: the model runs on this machine.
+        loginHint: 'no login needed — pull a model with `ollama pull qwen3-coder`',
+        local: true,
+        // Filled in by listEngines() from the models actually pulled on this
+        // machine — a curated list would just offer models the user doesn't have.
+        models: [],
     },
     // Gemini CLI is intentionally omitted: Google deprecated free "Gemini Code
     // Assist for individuals" sign-in in the CLI (it now points people to the
@@ -97,9 +110,27 @@ export const ENGINES = {
 // chat) is handled by the context-file instructions instead.
 const CLAUDE_ALLOWED_TOOLS = 'Bash,Edit,Write,Read,Glob,Grep,WebFetch,WebSearch,TodoWrite,Task,NotebookEdit,mcp__nativeblade';
 
-export function createSession({ engine = 'claude', model = null, cwd, emit }) {
-    if (engine === 'codex') ensureCodexMcp(); // Codex needs the MCP in its global config, not .mcp.json
+/**
+ * Engine metadata for the UI. Ollama's model list can't be hardcoded — it's
+ * whatever the user has pulled — so fill it in live. Everything else is static.
+ */
+export async function listEngines() {
+    return { ...ENGINES, ollama: { ...ENGINES.ollama, models: await ollamaModels() } };
+}
+
+export async function createSession({ engine = 'claude', model = null, cwd, emit, context = null }) {
+    // Codex reads its MCP servers from ~/.codex/config.toml, not .mcp.json —
+    // and that's the CLI driving Ollama too, so both need the same bootstrap.
+    if (engine === 'codex' || engine === 'ollama') ensureCodexMcp();
     if (engine === 'grok') ensureGrokMcp(); // same story for Grok Build
+    // Ollama has no agentic CLI of its own: Codex drives the local model, so the
+    // local models get the same tool loop (shell, file edits, MCP) as the rest.
+    if (engine === 'ollama') {
+        // Both halves have to agree: the daemon needs the window baked into the
+        // model, and Codex needs to know the number so it compacts in time.
+        const name = await ollamaEnsureContext(model, context);
+        return codexSession({ model: name, cwd, emit, oss: true, contextWindow: await ollamaContext(name) });
+    }
     const make = { claude: claudeSession, codex: codexSession, grok: grokSession }[engine] ?? claudeSession;
     return make({ model, cwd, emit });
 }
@@ -177,6 +208,7 @@ function claudeSession({ model, cwd, emit }) {
             child.stdin.write(prompt);
             child.stdin.end();
 
+            let ended = false; // the turn closed on its own terms
             lineReader(child, (line) => {
                 let evt;
                 try { evt = JSON.parse(line); } catch { return; }
@@ -189,11 +221,19 @@ function claudeSession({ model, cwd, emit }) {
                     }
                 }
                 if (evt.type === 'result' && !isStopping()) {
+                    ended = true;
                     emit(evt.is_error
                         ? { type: 'error', message: evt.result || 'The AI run failed.' }
                         : { type: 'done' });
                 }
             });
+
+            // Same safety net as the other engines: a CLI that dies without a
+            // terminal event must never leave the chat spinning.
+            runner.onClose = (code) => {
+                if (ended) return;
+                emit({ type: 'error', message: `The AI stopped without finishing the turn (exit code ${code}).` });
+            };
             return child;
         },
     };
@@ -218,7 +258,11 @@ function claudeTool(block) {
 
 /* ----------------------------------------------------------------- codex */
 
-function codexSession({ model, cwd, emit }) {
+/**
+ * Codex CLI (`codex exec`). Also the engine behind Ollama: with `oss: true` it
+ * points the same agent loop at a model on this machine instead of OpenAI's API.
+ */
+function codexSession({ model, cwd, emit, oss = false, contextWindow = null }) {
     let threadId = null;
 
     const runner = {
@@ -237,6 +281,16 @@ function codexSession({ model, cwd, emit }) {
                 'exec', '-', '--json', '--skip-git-repo-check',
                 '--dangerously-bypass-approvals-and-sandbox',
             ];
+            // `-c model_provider=ollama`, NOT `--oss`: --oss is rejected by
+            // `codex exec resume` (so every follow-up turn would die), and it
+            // auto-pulls a 12GB default model when -m isn't already local. The
+            // -c override selects the same built-in provider on both paths.
+            if (oss) args.push('-c', 'model_provider=ollama');
+            // Codex ships a context window for its own models but knows nothing
+            // about a local one, so it never compacts and runs straight into
+            // Ollama silently truncating the prompt (the run then just dies
+            // mid-task). Tell it the daemon's real ceiling.
+            if (contextWindow) args.push('-c', `model_context_window=${contextWindow}`);
             if (model) args.push('-m', model);
             if (threadId) args.splice(1, 0, 'resume', threadId); // codex exec resume <id> -
 
@@ -245,6 +299,7 @@ function codexSession({ model, cwd, emit }) {
             child.stdin.end();
 
             let sawMessage = false;
+            let ended = false; // the turn closed on its own terms
             lineReader(child, (line) => {
                 let evt;
                 try { evt = JSON.parse(line); } catch { return; }
@@ -255,10 +310,18 @@ function codexSession({ model, cwd, emit }) {
                     if (it.type === 'command_execution') emit({ type: 'tool', name: 'command', label: 'Running command', detail: String(it.command ?? '').slice(0, 220) || null });
                     if (it.type === 'file_change') emit({ type: 'tool', name: 'file', label: 'Writing code', detail: null });
                 }
-                if (evt.type === 'turn.completed' && !isStopping()) emit({ type: 'done' });
-                if (evt.type === 'turn.failed' && !isStopping()) emit({ type: 'error', message: evt.error?.message || 'The AI run failed.' });
+                if (evt.type === 'turn.completed' && !isStopping()) { ended = true; emit({ type: 'done' }); }
+                if (evt.type === 'turn.failed' && !isStopping()) { ended = true; emit({ type: 'error', message: evt.error?.message || 'The AI run failed.' }); }
             });
             void sawMessage;
+
+            // The CLI died without ending the turn — it crashed, or the model
+            // blew past its context and gave up. Say so: with no event the chat
+            // just spins on the last tool line forever.
+            runner.onClose = (code) => {
+                if (ended) return;
+                emit({ type: 'error', message: `The AI stopped without finishing the turn (exit code ${code}).` });
+            };
             return child;
         },
     };

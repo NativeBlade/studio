@@ -1,10 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { useEnvStore } from '../../stores/env.js';
 import { useSettingsStore } from '../../stores/settings.js';
 import { useT } from '../../lib/i18n.js';
 import { Button } from '../ui/Button.jsx';
 import { ImageProviderCard } from './ImageProviderCard.jsx';
+
+// Context sizes for local models, the same ladder Ollama itself offers. Capped
+// per model by what its architecture supports.
+const CONTEXT_SIZES = [4096, 8192, 16384, 32768, 65536, 131072, 262144];
 
 /**
  * Choose your AI: which CLI drives the Studio (the user's own subscription,
@@ -18,8 +22,10 @@ export function SetupScreen({ onClose }) {
     const refresh = useEnvStore((s) => s.refresh);
     const engine = useSettingsStore((s) => s.engine);
     const model = useSettingsStore((s) => s.model);
+    const ollamaContext = useSettingsStore((s) => s.ollamaContext);
     const setEngine = useSettingsStore((s) => s.setEngine);
     const setModel = useSettingsStore((s) => s.setModel);
+    const setOllamaContext = useSettingsStore((s) => s.setOllamaContext);
     const t = useT();
     const [copied, setCopied] = useState(false);
 
@@ -27,6 +33,23 @@ export function SetupScreen({ onClose }) {
     const selected = check(engine);
     const meta = engines[engine];
     const ready = !!selected?.ok;
+
+    // Ollama's list is whatever is pulled locally — it has no "Default" entry,
+    // and a model persisted from another engine (or since removed) won't be in
+    // it either. Land on something this engine can actually run.
+    useEffect(() => {
+        const models = meta?.models ?? [];
+        if (ready && models.length && !models.some((m) => m.id === model)) setModel(models[0].id);
+    }, [ready, meta, model, setModel]);
+
+    const maxContext = meta?.models?.find((m) => m.id === model)?.maxContext ?? null;
+    const sizes = CONTEXT_SIZES.filter((n) => !maxContext || n <= maxContext);
+
+    // A model can cap out below the remembered size (or below every option) —
+    // never send the daemon a window the architecture can't do.
+    useEffect(() => {
+        if (meta?.local && sizes.length && !sizes.includes(ollamaContext)) setOllamaContext(sizes[sizes.length - 1]);
+    }, [meta, sizes, ollamaContext, setOllamaContext]);
 
     const copy = () => {
         navigator.clipboard.writeText(selected?.hint?.cmd ?? '');
@@ -50,7 +73,7 @@ export function SetupScreen({ onClose }) {
                 </div>
 
                 {/* Engine cards */}
-                <div style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                <div style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
                     {Object.entries(engines).map(([id, e]) => {
                         const c = check(id);
                         const on = engine === id;
@@ -80,19 +103,40 @@ export function SetupScreen({ onClose }) {
                             </div>
                         </div>
                         <div style={{ borderRadius: 14, padding: 14, background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)' }}>
-                            <div style={{ fontSize: 12, fontWeight: 600, color: '#c2c7cf' }}>{t('setup.signStep')}</div>
-                            <div style={{ marginTop: 6, fontSize: 12.5, color: '#9aa0a8' }}>{t('setup.signWith', { vendor: meta?.vendor ?? '', hint: meta?.loginHint ?? '' })}</div>
+                            {/* Local engines have nothing to sign into — step 2 is pulling a model. */}
+                            <div style={{ fontSize: 12, fontWeight: 600, color: '#c2c7cf' }}>{meta?.local ? t('setup.pullStep') : t('setup.signStep')}</div>
+                            <div style={{ marginTop: 6, fontSize: 12.5, color: '#9aa0a8' }}>
+                                {meta?.local ? t('setup.pullHint') : t('setup.signWith', { vendor: meta?.vendor ?? '', hint: meta?.loginHint ?? '' })}
+                            </div>
                         </div>
                     </div>
                 ) : (
                     <div style={{ marginTop: 14 }}>
                         <div style={{ marginBottom: 8, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#6b7280' }}>{t('setup.model')}</div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                            {(meta?.models ?? []).map((m) => {
-                                const on = model === m.id;
-                                return <button key={m.label} onClick={() => setModel(m.id)} className="nb-btn" style={{ borderRadius: 99, padding: '7px 14px', fontSize: 12.5, background: on ? 'rgba(220,38,38,0.16)' : 'rgba(255,255,255,0.04)', border: `1px solid ${on ? 'rgba(255,77,77,0.45)' : 'rgba(255,255,255,0.12)'}`, color: on ? '#fff' : '#c2c7cf' }}>{m.label}</button>;
-                            })}
-                        </div>
+                        {(meta?.models ?? []).length === 0 ? (
+                            <div style={{ fontSize: 12.5, lineHeight: 1.5, color: '#9aa0a8' }}>{t('setup.noModels')}</div>
+                        ) : (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                {meta.models.map((m) => {
+                                    const on = model === m.id;
+                                    return <button key={m.label} onClick={() => setModel(m.id)} className="nb-btn" style={{ borderRadius: 99, padding: '7px 14px', fontSize: 12.5, background: on ? 'rgba(220,38,38,0.16)' : 'rgba(255,255,255,0.04)', border: `1px solid ${on ? 'rgba(255,77,77,0.45)' : 'rgba(255,255,255,0.12)'}`, color: on ? '#fff' : '#c2c7cf' }}>{m.label}</button>;
+                                })}
+                            </div>
+                        )}
+
+                        {/* Local models load at whatever window we bake in — see engines.js. */}
+                        {meta?.local && sizes.length > 0 && (
+                            <div style={{ marginTop: 14 }}>
+                                <div style={{ marginBottom: 8, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#6b7280' }}>{t('setup.context')}</div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                    {sizes.map((n) => {
+                                        const on = ollamaContext === n;
+                                        return <button key={n} onClick={() => setOllamaContext(n)} className="nb-btn" style={{ borderRadius: 99, padding: '7px 14px', fontSize: 12.5, background: on ? 'rgba(220,38,38,0.16)' : 'rgba(255,255,255,0.04)', border: `1px solid ${on ? 'rgba(255,77,77,0.45)' : 'rgba(255,255,255,0.12)'}`, color: on ? '#fff' : '#c2c7cf' }}>{n / 1024}k</button>;
+                                    })}
+                                </div>
+                                <div style={{ marginTop: 8, fontSize: 11, lineHeight: 1.5, color: '#6b7280' }}>{t('setup.contextHint')}</div>
+                            </div>
+                        )}
                     </div>
                 )}
 
