@@ -339,13 +339,14 @@ Keep any text before a marker and put nothing after it. Only generate images the
         }
     }
 
-    const { engine, model } = useSettingsStore.getState();
+    const { engine, model, ollamaContext } = useSettingsStore.getState();
     window.studio.chat.send({
         appId: app.id,
         cwd,
         text: finalPrompt,
         engine,
         model,
+        context: engine === 'ollama' ? ollamaContext : null,
         scaffold: mode === 'build', // Approve & build → the Studio scaffolds first
         app: { name: app.name, slug: app.slug, company: app.company, description: app.description, platforms: app.platforms },
     });

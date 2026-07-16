@@ -13,7 +13,11 @@ import archiver from 'archiver';
  *
  *   login()  → device code → approve in browser → poll → access_token (stored)
  *   apps()   → GET /studio/apps                     (Bearer)
- *   upload() → POST /apps/{slug}/studio/uploads {version} → presigned PUT of the zip
+ *   upload() → POST /apps/{slug}/studio/uploads {version, env} → presigned PUT of the zip
+ *
+ * The .env goes up twice on purpose: inside the zip (where the build reads it)
+ * and as `env`, which the backend uses to seed the app's env on FIRST publish
+ * only — after that the portal owns it and publishing won't overwrite it.
  */
 
 // Override for staging with NB_PUBLISH_BASE.
@@ -131,6 +135,12 @@ export function publishVersion(projectDir) {
     } catch { return '1.0.0'; }
 }
 
+/** The project's local .env, if it has one. Seeds the app's env on first publish. */
+function readEnvFile(projectDir) {
+    try { return readFileSync(join(projectDir, '.env'), 'utf-8'); }
+    catch { return null; }
+}
+
 function zipProject(dir) {
     return new Promise((resolve, reject) => {
         const out = join(tmpdir(), `nb-publish-${Date.now()}.zip`);
@@ -161,16 +171,17 @@ export async function publishUpload({ slug, projectDir, version, emit } = {}) {
     try {
         emit?.({ type: 'uploading' });
 
-        // 1. presigned PUT + set this update's version.
+        // 1. presigned PUT + set this update's version (and seed the env if the
+        // app has none yet).
         const u = await fetch(`${BASE}/apps/${slug}/studio/uploads`, {
             method: 'POST',
             headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ version }),
+            body: JSON.stringify({ version, env: readEnvFile(projectDir) }),
         });
         if (u.status === 401) { publishLogout(); throw new Error('unauthorized'); }
         if (!u.ok) throw new Error(`upload request failed (${u.status})`);
 
-        const { put_url, headers = {}, version: saved } = await readJson(u);
+        const { put_url, headers = {}, version: saved, env_seeded: envSeeded = false } = await readJson(u);
         if (!put_url) throw new Error('upload request returned no URL');
 
         // 2. push the zip straight to storage with the returned headers. Retry
@@ -195,7 +206,7 @@ export async function publishUpload({ slug, projectDir, version, emit } = {}) {
             throw new Error(`upload failed (${put.status}) to ${host}${detail ? ': ' + detail : ''}`);
         }
 
-        return { ok: true, version: saved || version };
+        return { ok: true, version: saved || version, envSeeded };
     } finally {
         try { unlinkSync(zip); } catch { /* temp file */ }
     }
