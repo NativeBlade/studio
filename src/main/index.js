@@ -200,8 +200,13 @@ app.whenReady().then(async () => {
         return null;
     });
 
-    // Write a secret straight into the app's .env — never through the chat log.
-    ipcMain.handle('env:set-secret', (_e, { cwd, key, value }) => {
+    /**
+     * Write a secret straight into an app's .env — never through the chat log.
+     * Shared by the mid-build secret card and the plan wizard's key step, so
+     * both get the same containment: the folder must sit under the Studio's own
+     * apps root, and the key must be a plain .env name.
+     */
+    const setSecret = (cwd, key, value) => {
         const root = join(app.getPath('documents'), 'NativeBlade Studio');
         const dir = resolve(cwd ?? '');
         if (!dir.startsWith(root + '\\') && !dir.startsWith(root + '/')) return { ok: false };
@@ -218,13 +223,15 @@ app.whenReady().then(async () => {
         env = re.test(env) ? env.replace(re, line) : (env && !env.endsWith('\n') ? env + '\n' : env) + line + '\n';
         writeFileSync(file, env);
         return { ok: true };
-    });
+    };
+
+    ipcMain.handle('env:set-secret', (_e, { cwd, key, value }) => setSecret(cwd, key, value));
 
     // How long an app can sit before the Studio refreshes NativeBlade on the
     // next request. Long enough that day-to-day work never pays for it.
     const FRAMEWORK_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 
-    ipcMain.handle('chat:send', async (event, { appId, cwd, text, app: appInfo, scaffold, engine, model, context, frameworkUpdatedAt }) => {
+    ipcMain.handle('chat:send', async (event, { appId, cwd, text, app: appInfo, scaffold, engine, model, context, frameworkUpdatedAt, secrets }) => {
         const emit = safeEmit(event.sender, appId);
         const key = `${engine ?? 'claude'}:${model ?? ''}:${context ?? ''}`;
         let entry = sessions.get(appId);
@@ -234,27 +241,39 @@ app.whenReady().then(async () => {
         }
         const session = entry.session;
 
-        // "Approve & build": the Studio scaffolds deterministically first —
-        // the AI only builds features on top of a working project.
-        if (scaffold) {
-            const ok = await scaffoldApp({ dir: cwd, appInfo: appInfo ?? {}, env: await getEnv(), emit });
-            if (!ok) return; // scaffold already emitted the error
-            startPreview({ appId, dir: cwd, emit: safeEmit(event.sender, appId) });
-            return { frameworkUpdatedAt: new Date().toISOString() }; // scaffold installs the latest
-        }
-
-        // An app left alone for a week is probably on an old NativeBlade. Bring
-        // it forward before the AI works on it, and tell the AI what changed —
-        // the date only advances on a real update, so a failure retries later.
-        const age = frameworkUpdatedAt ? Date.now() - new Date(frameworkUpdatedAt).getTime() : Infinity;
+        // Whatever happens below, the turn MUST end at session.send() — an early
+        // return here leaves the chat spinning forever with the AI never called.
         let updatedAt = null;
-        if (age > FRAMEWORK_MAX_AGE) {
-            const { ok, note } = await updateFramework({ dir: cwd, emit });
-            if (note) {
-                text = `${note}\n\n${text}`;
-                await rebuildPreview({ appId, dir: cwd, emit }); // new version ships new assets
+
+        if (scaffold) {
+            // "Approve & build": the Studio scaffolds deterministically first —
+            // the AI only builds features on top of a working project.
+            const ok = await scaffoldApp({ dir: cwd, appInfo: appInfo ?? {}, env: await getEnv(), emit });
+            if (!ok) return { frameworkUpdatedAt: null }; // scaffold already emitted the error
+
+            // Keys the user typed in the plan wizard. This has to land AFTER the
+            // scaffold — `composer create-project` writes .env, so anything put
+            // there earlier would be wiped. Skipped keys carry no value and are
+            // simply not written; the build prompt already says they're missing.
+            for (const s of secrets ?? []) {
+                if (s?.value) setSecret(cwd, s.env, s.value);
             }
-            if (ok) updatedAt = new Date().toISOString();
+
+            startPreview({ appId, dir: cwd, emit: safeEmit(event.sender, appId) });
+            updatedAt = new Date().toISOString(); // a fresh scaffold installs the latest
+        } else {
+            // An app left alone for a week is probably on an old NativeBlade. Bring
+            // it forward before the AI works on it, and tell the AI what changed —
+            // the date only advances on a real update, so a failure retries later.
+            const age = frameworkUpdatedAt ? Date.now() - new Date(frameworkUpdatedAt).getTime() : Infinity;
+            if (age > FRAMEWORK_MAX_AGE) {
+                const { ok, note } = await updateFramework({ dir: cwd, emit });
+                if (note) {
+                    text = `${note}\n\n${text}`;
+                    await rebuildPreview({ appId, dir: cwd, emit }); // new version ships new assets
+                }
+                if (ok) updatedAt = new Date().toISOString();
+            }
         }
 
         session.send(text);

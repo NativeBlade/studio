@@ -156,23 +156,40 @@ function lineReader(child, onLine) {
     });
 }
 
+/**
+ * Drives one CLI session. `runner.start` returns { child, onClose } — the
+ * onClose belongs to THAT turn, never to the runner, or a turn ending while the
+ * previous process is still exiting would fire the wrong one.
+ *
+ * Sends are serialized: a CLI announces its result and then takes a moment to
+ * exit, so the Studio can well ask for the next turn (a continue-after-images,
+ * a suggestion) while the old process is still alive. Two CLIs resuming the
+ * same session at once is asking for trouble, so queue instead.
+ */
 function baseSession(runner) {
     let child = null;
     let stopping = false;
+    let queue = Promise.resolve();
+
+    const run = (prompt) => new Promise((resolve) => {
+        stopping = false;
+        const { child: c, onClose } = runner.start(prompt, () => stopping);
+        child = c;
+
+        let stderr = '';
+        c.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+        c.on('close', (code) => {
+            if (stopping) runner.emit({ type: 'stopped' });
+            else if (code !== 0 && stderr.trim()) runner.emit({ type: 'error', message: stderr.trim().slice(-600) });
+            else onClose?.(code); // this turn's own callback
+            if (child === c) child = null;
+            resolve();
+        });
+    });
 
     return {
         send(prompt) {
-            stopping = false;
-            child = runner.start(prompt, () => stopping);
-
-            let stderr = '';
-            child.stderr.on('data', (c) => { stderr += c.toString(); });
-            child.on('close', (code) => {
-                if (stopping) runner.emit({ type: 'stopped' });
-                else if (code !== 0 && stderr.trim()) runner.emit({ type: 'error', message: stderr.trim().slice(-600) });
-                else runner.onClose?.(code);
-                child = null;
-            });
+            queue = queue.then(() => run(prompt)).catch(() => {}); // one dead turn must not wedge the queue
         },
         stop() {
             if (!child) return;
@@ -230,11 +247,13 @@ function claudeSession({ model, cwd, emit }) {
 
             // Same safety net as the other engines: a CLI that dies without a
             // terminal event must never leave the chat spinning.
-            runner.onClose = (code) => {
-                if (ended) return;
-                emit({ type: 'error', message: `The AI stopped without finishing the turn (exit code ${code}).` });
+            return {
+                child,
+                onClose: (code) => {
+                    if (ended) return;
+                    emit({ type: 'error', message: `The AI stopped without finishing the turn (exit code ${code}).` });
+                },
             };
-            return child;
         },
     };
     return baseSession(runner);
@@ -318,11 +337,13 @@ function codexSession({ model, cwd, emit, oss = false, contextWindow = null }) {
             // The CLI died without ending the turn — it crashed, or the model
             // blew past its context and gave up. Say so: with no event the chat
             // just spins on the last tool line forever.
-            runner.onClose = (code) => {
-                if (ended) return;
-                emit({ type: 'error', message: `The AI stopped without finishing the turn (exit code ${code}).` });
+            return {
+                child,
+                onClose: (code) => {
+                    if (ended) return;
+                    emit({ type: 'error', message: `The AI stopped without finishing the turn (exit code ${code}).` });
+                },
             };
-            return child;
         },
     };
     return baseSession(runner);
@@ -392,12 +413,14 @@ function grokSession({ model, cwd, emit }) {
 
             // Fallback: process died without an `end`/`error` event — still flush
             // whatever answer we have and close the turn.
-            runner.onClose = () => {
-                if (ended) return;
-                if (answer.trim()) emit({ type: 'text', text: answer });
-                emit({ type: 'done' });
+            return {
+                child,
+                onClose: () => {
+                    if (ended) return;
+                    if (answer.trim()) emit({ type: 'text', text: answer });
+                    emit({ type: 'done' });
+                },
             };
-            return child;
         },
     };
     return baseSession(runner);

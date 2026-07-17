@@ -5,7 +5,7 @@ import { useAppsStore } from './apps.js';
 import { useSettingsStore } from './settings.js';
 import { usePreviewStore } from './preview.js';
 import { useConsoleStore, formatConsoleNote } from './console.js';
-import { planPrompt, buildPrompt, parsePlan } from '../lib/plan.js';
+import { planPrompt, buildPrompt, parsePlan, suggestPrompt, parseSuggestions, shouldSuggest } from '../lib/plan.js';
 import { parseSecrets, stripRebuild, parseImages } from '../lib/secret.js';
 import { translate } from '../lib/i18n.js';
 
@@ -94,9 +94,9 @@ export const useChatStore = create(persist((set, get) => ({
         await launch(set, app, planPrompt(app, idea, feedback), 'plan');
     },
 
-    approvePlan: (app, steps, answers) => {
+    approvePlan: (app, steps, answers, secrets = []) => {
         set((s) => ({ byApp: { ...s.byApp, [app.id]: (s.byApp[app.id] ?? []).map((m) => (m.role === 'plan' ? { ...m, approved: true } : m)) } }));
-        launch(set, app, buildPrompt(app, steps, answers), 'build');
+        launch(set, app, buildPrompt(app, steps, answers, secrets), 'build', secrets.filter((s) => s.value));
     },
 
     rejectPlan: (app, feedback) => {
@@ -146,6 +146,15 @@ export const useChatStore = create(persist((set, get) => ({
             busy: { ...s.busy, [app.id]: false },
             byApp: { ...s.byApp, [app.id]: (s.byApp[app.id] ?? []).map((m) => (m.role === 'group' && !m.endedAt ? { ...m, endedAt: Date.now() } : m)) },
         }));
+    },
+
+    // Ask the AI — in its own short turn, with the build still fresh in the
+    // session — which native powers suit this app. Best-effort: no suggestions
+    // is a perfectly fine outcome, and never worth an error in the user's chat.
+    askSuggestions: async (appId) => {
+        const app = useAppsStore.getState().apps.find((a) => a.id === appId);
+        if (!app?.built || get().busy[appId]) return;
+        await launch(set, app, suggestPrompt(app), 'suggest');
     },
 
     restore: async (app, cp) => {
@@ -214,7 +223,9 @@ export const useChatStore = create(persist((set, get) => ({
     // control back so the AI continues the build using them.
     generateImages: async (appId, images) => {
         const app = useAppsStore.getState().apps.find((a) => a.id === appId);
-        if (!app?.path) return;
+        // `done` left the app busy on our behalf — if we bail here, nothing else
+        // will ever clear it and the chat is locked for good.
+        if (!app?.path) { set((s) => ({ busy: { ...s.busy, [appId]: false } })); return; }
         const notes = [];
         for (const img of images) {
             pushMsg(set, appId, { role: 'system', text: tt('chat.imageGen', { path: img.path }) });
@@ -243,6 +254,7 @@ export const useChatStore = create(persist((set, get) => ({
         let rebuild = false;
         let doneMode = null;
         let images = null; // [[NB_IMAGE]] requests to fulfill after this turn ends
+        let waitingSecret = false; // the AI stopped to ask for a key and is waiting on the user
         set((s) => {
             const list = [...(s.byApp[appId] ?? [])];
             const gi = list.findLastIndex((m) => m.role === 'group');
@@ -265,7 +277,14 @@ export const useChatStore = create(persist((set, get) => ({
 
                 if (evt.type === 'done' && group) {
                     const lastText = [...group.items].reverse().find((it) => it.kind === 'text');
-                    if (mode === 'plan') {
+                    if (mode === 'suggest') {
+                        // A JSON-only turn: nothing here is for the user to read. Show
+                        // the chips (if any) and drop the round entirely — an empty
+                        // "Working…" box after the build would just look like a glitch.
+                        const items = parseSuggestions(lastText?.text);
+                        group.items = [];
+                        if (items.length) list.push({ id: nextId++, role: 'suggest', items });
+                    } else if (mode === 'plan') {
                         const app = useAppsStore.getState().apps.find((a) => a.id === appId);
                         if (lastText) group.items = group.items.filter((it) => it !== lastText);
                         list.push({ id: nextId++, role: 'plan', plan: parsePlan(lastText?.text, app ?? { name: 'your app' }), approved: false });
@@ -281,6 +300,7 @@ export const useChatStore = create(persist((set, get) => ({
                         images = imgs.length ? imgs : null;
                         if (cleaned.text) list.push({ id: nextId++, role: 'ai', text: cleaned.text });
                         for (const spec of secrets) list.push({ id: nextId++, role: 'secret', spec, resolved: false });
+                        waitingSecret = secrets.length > 0;
                     }
                     if (group && !group.items.length) list.splice(list.indexOf(group), 1);
                 }
@@ -295,7 +315,11 @@ export const useChatStore = create(persist((set, get) => ({
 
                 // Turn just ended: trim the verbose detail of older turns so the
                 // history stays bounded no matter how long the app is built for.
-                return { byApp: { ...s.byApp, [appId]: pruneGroups(reopened) }, busy: { ...s.busy, [appId]: false }, mode: { ...s.mode, [appId]: null } };
+                // With images pending the run is NOT over — generateImages is about
+                // to hand the AI back the wheel. Staying busy keeps the composer
+                // shut and, above all, holds the preview reload back: releasing here
+                // shows the app half-dressed, without the logo it's still making.
+                return { byApp: { ...s.byApp, [appId]: pruneGroups(reopened) }, busy: { ...s.busy, [appId]: !!images }, mode: { ...s.mode, [appId]: null } };
             }
 
             return { byApp: { ...s.byApp, [appId]: list } };
@@ -310,6 +334,9 @@ export const useChatStore = create(persist((set, get) => ({
             if (doneMode === 'chat' && !images) get().recordCheckpoint(appId);
             if (rebuild) get().triggerRebuild(appId);
             if (images) get().generateImages(appId, images);
+            // Native powers the user never thought to ask for, fetched as their
+            // own tiny JSON turn — but only once the run is really over.
+            if (shouldSuggest({ mode: doneMode, images, waitingSecret })) get().askSuggestions(appId);
         }
     },
 }), {
@@ -323,7 +350,10 @@ function pushMsg(set, appId, msg) {
     set((s) => ({ byApp: { ...s.byApp, [appId]: [...(s.byApp[appId] ?? []), { id: nextId++, ...msg }] } }));
 }
 
-async function launch(set, app, prompt, mode) {
+// `secrets` ([{env, value}]) rides straight through to main, which writes it to
+// .env after the scaffold. It is deliberately never put in `byApp`: the chat is
+// persisted to disk, and a key in there would outlive the turn.
+async function launch(set, app, prompt, mode, secrets = []) {
     set((s) => ({
         byApp: { ...s.byApp, [app.id]: [...(s.byApp[app.id] ?? []), { id: nextId++, role: 'group', items: [], startedAt: Date.now(), endedAt: null }] },
         busy: { ...s.busy, [app.id]: true },
@@ -334,12 +364,17 @@ async function launch(set, app, prompt, mode) {
     // Baseline for this turn's checkpoint: HEAD before the AI runs (null if the
     // folder isn't a git repo yet — the first build's commit then counts).
     turnBase[app.id] = (await window.studio.git.head(cwd))?.sha ?? null;
+    // A 'suggest' turn is a closed question answered in JSON — no ride-along
+    // context belongs on it. It must NOT eat a pending restore/update note
+    // either: that note is owed to the user's next real request.
+    const quiet = mode === 'suggest';
+
     // Ride-along context, newest info closest to the user's ask:
     //  - a pending restore note (so the AI re-syncs after a rollback),
     //  - the live preview's console errors (so it can debug automatically).
     let finalPrompt = prompt;
-    const restoreNote = pendingNote[app.id];
-    delete pendingNote[app.id];
+    const restoreNote = quiet ? null : pendingNote[app.id];
+    if (!quiet) delete pendingNote[app.id];
     if (mode === 'chat') {
         const consoleNote = formatConsoleNote(useConsoleStore.getState().drain(app.id));
         if (consoleNote) finalPrompt = `${consoleNote}\n\n${finalPrompt}`;
@@ -348,7 +383,7 @@ async function launch(set, app, prompt, mode) {
 
     // When image generation is configured, tell the AI it can request images.
     // Not during planning — the plan shouldn't spend the user's image budget.
-    if (mode !== 'plan') {
+    if (mode !== 'plan' && !quiet) {
         const img = await window.studio.image.get().catch(() => null);
         if (img?.hasKey) {
             const note = `[Image generation is ENABLED — you can create real raster images (logos, icons, illustrations, backgrounds). Emit exactly ONE marker per image and STOP; the Studio generates it and then tells you to continue:
@@ -368,6 +403,7 @@ Keep any text before a marker and put nothing after it. Only generate images the
         model,
         context: engine === 'ollama' ? ollamaContext : null,
         scaffold: mode === 'build', // Approve & build → the Studio scaffolds first
+        secrets: secrets.map((s) => ({ env: s.env, value: s.value })),
         frameworkUpdatedAt: app.frameworkUpdatedAt ?? null, // main decides if it's stale
         app: { name: app.name, slug: app.slug, company: app.company, description: app.description, platforms: app.platforms },
     });

@@ -9,9 +9,19 @@ import { useT } from '../../lib/i18n.js';
  */
 export function PlanWizard({ plan, approved, onApprove, onReject }) {
     const t = useT();
-    const stageLabel = { Features: t('plan.features'), Design: t('plan.design'), Review: t('plan.review') };
+    const stageLabel = { Features: t('plan.features'), Design: t('plan.design'), Keys: t('plan.keys'), Review: t('plan.review') };
     const questions = plan.questions ?? [];
-    const stages = questions.length ? ['Features', 'Design', 'Review'] : ['Features', 'Review'];
+    // Keys the planned features can't work without. Asked HERE, before a line of
+    // code exists, instead of mid-build: an agent 100 steps deep forgets to ask
+    // properly and blurts the request into the chat, which is exactly what the
+    // masked field exists to prevent.
+    const planSecrets = plan.secrets ?? [];
+    const stages = [
+        'Features',
+        ...(questions.length ? ['Design'] : []),
+        ...(planSecrets.length ? ['Keys'] : []),
+        'Review',
+    ];
     const [stage, setStage] = useState(0);
     const [changing, setChanging] = useState(false);
     const [feedback, setFeedback] = useState('');
@@ -31,6 +41,11 @@ export function PlanWizard({ plan, approved, onApprove, onReject }) {
         if ((other[qi] ?? '').trim()) parts.push(other[qi].trim());
         return parts.length ? { question: q.question, answer: parts.join(', ') } : null;
     }).filter(Boolean);
+    // Never defaulted or pre-filled: an empty value means "skip", and the build
+    // is told the key is missing rather than pretending it's there.
+    const [keyVals, setKeyVals] = useState({});
+    const secrets = planSecrets.map((s) => ({ ...s, value: (keyVals[s.env] ?? '').trim() }));
+
     const label = stages[stage];
     const canNext = label !== 'Features' || selected.length > 0;
 
@@ -85,6 +100,29 @@ export function PlanWizard({ plan, approved, onApprove, onReject }) {
                     </div>
                 )}
 
+                {label === 'Keys' && (
+                    <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        <div style={{ fontSize: 12, lineHeight: 1.5, color: '#9aa0a8' }}>{t('plan.keysIntro')}</div>
+                        {planSecrets.map((s) => (
+                            <div key={s.env}>
+                                <div style={{ marginBottom: 5, fontSize: 12.5, fontWeight: 600, color: '#e7e9ee' }}>{s.label}</div>
+                                <input
+                                    type="password"
+                                    value={keyVals[s.env] ?? ''}
+                                    onChange={(e) => setKeyVals((p) => ({ ...p, [s.env]: e.target.value }))}
+                                    placeholder={s.env}
+                                    autoComplete="off"
+                                    spellCheck={false}
+                                    className="nb-field"
+                                    style={{ width: '100%', borderRadius: 10, padding: '8px 12px', fontSize: 12.5, fontFamily: 'monospace' }}
+                                />
+                                {s.help && <div style={{ marginTop: 5, fontSize: 11, lineHeight: 1.5, color: '#6b7280' }}>{s.help}</div>}
+                            </div>
+                        ))}
+                        <div style={{ fontSize: 11, color: '#6b7280' }}>{t('plan.keysSkip')}</div>
+                    </div>
+                )}
+
                 {label === 'Review' && !changing && (
                     <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
                         <div>
@@ -95,6 +133,17 @@ export function PlanWizard({ plan, approved, onApprove, onReject }) {
                             <div>
                                 <div style={{ marginBottom: 4, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#c4b5fd' }}>{t('plan.designPrefs')}</div>
                                 {answers.map((a, i) => <div key={i} style={{ fontSize: 12.5, color: '#c2c7cf' }}>• {a.question} <span style={{ color: '#fff' }}>{a.answer}</span></div>)}
+                            </div>
+                        )}
+                        {secrets.length > 0 && (
+                            <div>
+                                <div style={{ marginBottom: 4, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#9aa0a8' }}>{t('plan.keys')}</div>
+                                {/* Status only — the value never gets rendered anywhere. */}
+                                {secrets.map((s) => (
+                                    <div key={s.env} style={{ fontSize: 12.5, color: '#c2c7cf' }}>
+                                        • {s.label} <span style={{ color: s.value ? '#86e89a' : '#6b7280' }}>{s.value ? t('plan.keyFilled') : t('plan.keySkipped')}</span>
+                                    </div>
+                                ))}
                             </div>
                         )}
                     </div>
@@ -115,7 +164,7 @@ export function PlanWizard({ plan, approved, onApprove, onReject }) {
                             <button onClick={() => setStage(stage + 1)} disabled={!canNext} className="nb-btn" style={{ whiteSpace: 'nowrap', borderRadius: 10, padding: '6px 14px', fontSize: 12, fontWeight: 600, color: '#fff', border: 'none', background: canNext ? 'linear-gradient(180deg,#ff5151,#d31f1f)' : 'rgba(255,255,255,0.06)' }}>{t('plan.next')}</button>
                         ) : (
                             <>
-                                <button onClick={() => onApprove(selected, answers)} disabled={!selected.length} className="nb-btn" style={{ whiteSpace: 'nowrap', borderRadius: 10, padding: '6px 14px', fontSize: 12, fontWeight: 600, color: '#fff', border: 'none', background: selected.length ? 'linear-gradient(180deg,#ff5151,#d31f1f)' : 'rgba(255,255,255,0.06)' }}>{t('plan.approve')}</button>
+                                <button onClick={() => onApprove(selected, answers, secrets)} disabled={!selected.length} className="nb-btn" style={{ whiteSpace: 'nowrap', borderRadius: 10, padding: '6px 14px', fontSize: 12, fontWeight: 600, color: '#fff', border: 'none', background: selected.length ? 'linear-gradient(180deg,#ff5151,#d31f1f)' : 'rgba(255,255,255,0.06)' }}>{t('plan.approve')}</button>
                                 <button onClick={() => setChanging(true)} className="nb-btn" style={{ whiteSpace: 'nowrap', borderRadius: 10, padding: '6px 14px', fontSize: 12, fontWeight: 500, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.14)', color: '#c2c7cf' }}>{t('plan.requestChanges')}</button>
                             </>
                         )}

@@ -5,6 +5,7 @@ import { ProgressGroup } from './ProgressGroup.jsx';
 import { PlanWizard } from './PlanWizard.jsx';
 import { Checkpoint } from './Checkpoint.jsx';
 import { SecretCard } from './SecretCard.jsx';
+import { Suggestions } from './Suggestions.jsx';
 import { Composer } from './Composer.jsx';
 import { useT } from '../../lib/i18n.js';
 
@@ -52,9 +53,10 @@ export function ChatPanel({ app }) {
                 )}
                 {shown.map((m) => {
                     if (m.role === 'group') return <ProgressGroup key={m.id} group={m} live={busy && m === lastGroup && !m.endedAt} onStop={() => stop(app.id)} />;
-                    if (m.role === 'plan') return <PlanWizard key={m.id} plan={m.plan} approved={m.approved} onApprove={(steps, answers) => approvePlan(app, steps, answers)} onReject={(feedback) => rejectPlan(app, feedback)} />;
+                    if (m.role === 'plan') return <PlanWizard key={m.id} plan={m.plan} approved={m.approved} onApprove={(steps, answers, secrets) => approvePlan(app, steps, answers, secrets)} onReject={(feedback) => rejectPlan(app, feedback)} />;
                     if (m.role === 'checkpoint') return <Checkpoint key={m.id} cp={m} onRestore={() => restore(app, m)} />;
                     if (m.role === 'secret') return <SecretCard key={m.id} message={m} onResolve={(value) => resolveSecret(app, m, value)} />;
+                    if (m.role === 'suggest') return <Suggestions key={m.id} items={m.items} busy={busy} onPick={(prompt) => send(app, prompt)} />;
                     return <MessageBubble key={m.id} message={m} />;
                 })}
             </div>
