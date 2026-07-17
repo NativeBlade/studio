@@ -131,6 +131,10 @@ app.whenReady().then(async () => {
     ipcMain.handle('shell:open', (_e, url) => shell.openExternal(url));
     ipcMain.handle('shell:reveal', (_e, path) => shell.openPath(path));
     ipcMain.handle('app:locale', () => app.getLocale()); // e.g. "pt-BR" — for the first-run language guess
+    // The packaged version, straight from the build. In `npm run dev` Electron
+    // reports its own version, so the top bar labels that case as dev instead of
+    // showing a number that means nothing.
+    ipcMain.handle('app:version', () => ({ version: app.getVersion(), packaged: app.isPackaged }));
 
     // Apps live in the user's Documents, one folder per slug.
     ipcMain.handle('apps:ensure-dir', (_e, slug) => {

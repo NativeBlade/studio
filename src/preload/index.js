@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('studio', {
         reveal: (path) => ipcRenderer.invoke('shell:reveal', path),
     },
     locale: () => ipcRenderer.invoke('app:locale'),
+    version: () => ipcRenderer.invoke('app:version'),
     apps: {
         ensureDir: (slug) => ipcRenderer.invoke('apps:ensure-dir', slug),
         delete: (payload) => ipcRenderer.invoke('apps:delete', payload),

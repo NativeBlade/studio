@@ -63,6 +63,7 @@ const en = {
     'topbar.voiceTitle': 'Language you dictate in (for voice input)',
     'topbar.uiLangTitle': 'Studio interface language',
     'topbar.aiTitle': 'Choose your AI and model',
+    'topbar.versionTitle': 'Studio version you are running',
 
     'setup.title': 'Choose your AI',
     'setup.subtitle': 'The Studio builds with a coding CLI you already subscribe to. No API keys, nothing to pay us.',
@@ -295,6 +296,7 @@ const pt = {
     'topbar.voiceTitle': 'Idioma em que você fala (para a entrada de voz)',
     'topbar.uiLangTitle': 'Idioma da interface do Studio',
     'topbar.aiTitle': 'Escolher sua IA e o modelo',
+    'topbar.versionTitle': 'Versão do Studio que você está usando',
 
     'setup.title': 'Escolha sua IA',
     'setup.subtitle': 'O Studio constrói com uma CLI de código que você já assina. Sem chaves de API, nada pra pagar pra gente.',
@@ -527,6 +529,7 @@ const es = {
     'topbar.voiceTitle': 'Idioma en el que hablas (para la entrada de voz)',
     'topbar.uiLangTitle': 'Idioma de la interfaz del Studio',
     'topbar.aiTitle': 'Elegir tu IA y el modelo',
+    'topbar.versionTitle': 'Versión del Studio que estás usando',
 
     'setup.title': 'Elige tu IA',
     'setup.subtitle': 'El Studio construye con una CLI de código que ya tienes suscrita. Sin claves de API, nada que pagarnos.',

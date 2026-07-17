@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { ChevronLeft, Cpu, Mic } from 'lucide-react';
 import { useEnvStore } from '../../stores/env.js';
 import { useSettingsStore } from '../../stores/settings.js';
@@ -19,6 +20,15 @@ export function TopBar({ app, onBack, onOpenSetup }) {
     const modelLabel = meta?.models.find((m) => m.id === model)?.label ?? 'Default';
     const uiFlag = UI_LANGUAGES.find((l) => l.value === uiLang)?.img;
 
+    // The version the user is actually running — the first thing worth knowing
+    // when an update is meant to have landed, or when they report a bug.
+    const [version, setVersion] = useState(null);
+    useEffect(() => {
+        window.studio.version()
+            .then((v) => setVersion(v?.packaged ? `v${v.version}` : 'dev'))
+            .catch(() => {}); // a missing version label is never worth an error
+    }, []);
+
     const pill = { display: 'flex', alignItems: 'center', gap: 6, height: 34, borderRadius: 10, padding: '0 10px', fontSize: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', color: '#c2c7cf' };
     const bare = { background: 'transparent', border: 'none', outline: 'none', color: '#fff', fontSize: 12, fontWeight: 400, cursor: 'pointer' };
 
@@ -32,6 +42,7 @@ export function TopBar({ app, onBack, onOpenSetup }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <img src={logo} alt="" style={{ height: 26, width: 26, objectFit: 'contain' }} />
                 <span style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Studio</span>
+                {version && <span title={t('topbar.versionTitle')} style={{ fontSize: 10.5, fontWeight: 500, color: '#6b7280', letterSpacing: '0.02em' }}>{version}</span>}
             </div>
             {app && (
                 <span style={{ fontSize: 12.5, color: '#6b7280' }}>/ {app.name}</span>
