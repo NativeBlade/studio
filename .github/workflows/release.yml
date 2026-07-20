@@ -49,7 +49,7 @@ jobs:
       - name: Download SSL.com CodeSignTool
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://www.ssl.com/download/codesigntool-for-windows/" -OutFile "CodeSignTool.zip"
+          Invoke-WebRequest -Uri "https://github.com/SSLcom/CodeSignTool/releases/download/v1.3.2/CodeSignTool-v1.3.2.zip" -OutFile "CodeSignTool.zip"
           Expand-Archive -Path CodeSignTool.zip -DestinationPath CodeSignTool -Force
           $bat = Get-ChildItem -Path CodeSignTool -Recurse -Filter "CodeSignTool.bat" | Select-Object -First 1
           if (-not $bat) { throw "CodeSignTool.bat not found after extraction" }
