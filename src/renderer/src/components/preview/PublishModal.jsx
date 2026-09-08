@@ -24,12 +24,13 @@ export function PublishModal({ open, onClose, app }) {
     const [message, setMessage] = useState('');
     const [awaitUrl, setAwaitUrl] = useState(null);
     const [userCode, setUserCode] = useState(null);
+    const [zip, setZip] = useState({ done: 0, total: 0 }); // packaging progress
 
     // Progress from the main process (login opened, zipping, uploading).
     useEffect(() => {
         return window.studio.publish.onEvent((e) => {
             if (e.type === 'awaiting') { setPhase('awaiting'); setAwaitUrl(e.url); setUserCode(e.userCode); }
-            else if (e.type === 'zipping') setPhase('zipping');
+            else if (e.type === 'zipping') { setPhase('zipping'); setZip({ done: e.done || 0, total: e.total || 0 }); }
             else if (e.type === 'uploading') setPhase('uploading');
         });
     }, []);
@@ -72,7 +73,7 @@ export function PublishModal({ open, onClose, app }) {
 
     const publish = async () => {
         if (!slug || !version.trim()) return;
-        setPhase('zipping'); setMessage('');
+        setPhase('zipping'); setMessage(''); setZip({ done: 0, total: 0 });
         try {
             const res = await window.studio.publish.upload({ slug, cwd: app.path, version: version.trim() });
             setPhase('done'); setMessage(res.version);
@@ -141,7 +142,9 @@ export function PublishModal({ open, onClose, app }) {
                         <button onClick={logout} className="nb-btn" style={{ ...ghostBtn, opacity: busy ? 0.5 : 1 }} disabled={busy}><LogOut size={13} />{t('publish.logout')}</button>
                         <button onClick={publish} className="nb-btn" style={{ ...primaryBtn, opacity: (busy || !slug || !version.trim()) ? 0.6 : 1 }} disabled={busy || !slug || !version.trim()}>
                             {busy ? <Loader size={15} className="nb-spin" /> : <Rocket size={15} />}
-                            {phase === 'zipping' ? t('publish.zipping') : phase === 'uploading' ? t('publish.uploading') : t('publish.publish')}
+                            {phase === 'zipping'
+                                ? `${t('publish.zipping')}${zip.total ? ` ${Math.round((zip.done / zip.total) * 100)}%` : ''}`
+                                : phase === 'uploading' ? t('publish.uploading') : t('publish.publish')}
                         </button>
                     </div>
                     {phase === 'error' && <p style={{ fontSize: 12.5, color: '#ff8585' }}>{message}</p>}
