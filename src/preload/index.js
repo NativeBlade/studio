@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('studio', {
     },
     framework: {
         update: (payload) => ipcRenderer.invoke('framework:update', payload),
+        doctor: (payload) => ipcRenderer.invoke('framework:doctor', payload),
     },
     chat: {
         send: (payload) => ipcRenderer.invoke('chat:send', payload),

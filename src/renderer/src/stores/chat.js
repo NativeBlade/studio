@@ -46,6 +46,12 @@ const turnBase = {};
 // rolled-back edits; this tells it the working tree changed underneath it).
 const pendingNote = {};
 
+// Set while the turn in flight is the one the Studio launched to fix what
+// nativeblade:doctor found, so a scan that still fails does not launch
+// another fix turn (and another, forever): the second failure becomes a
+// note for the user's next message instead.
+const doctorTurn = {};
+
 /**
  * Conversations survive restarts (persisted like the app registry), but live
  * run state doesn't: on rehydrate, dangling groups are closed and message ids
@@ -146,6 +152,38 @@ export const useChatStore = create(persist((set, get) => ({
             busy: { ...s.busy, [app.id]: false },
             byApp: { ...s.byApp, [app.id]: (s.byApp[app.id] ?? []).map((m) => (m.role === 'group' && !m.endedAt ? { ...m, endedAt: Date.now() } : m)) },
         }));
+    },
+
+    // A real turn just ended (build or chat, nothing pending). Two follow-ups,
+    // in order, each a turn of its own on the same session:
+    //  1. the health check: `nativeblade:doctor` scans the app for PHP that
+    //     cannot run on the device and, when it finds something, the AI gets
+    //     one turn to fix it. The user never reads a crash on their phone.
+    //  2. the native-power suggestions, only when the app is healthy.
+    afterTurn: async (appId) => {
+        const app = useAppsStore.getState().apps.find((a) => a.id === appId);
+        if (!app?.path || get().busy[appId]) return;
+
+        const wasFixTurn = !!doctorTurn[appId];
+        delete doctorTurn[appId];
+
+        const res = await window.studio.framework.doctor({ cwd: app.path }).catch(() => null);
+        const count = res?.findings?.length ?? 0;
+        if (count) {
+            if (wasFixTurn) {
+                // One fix turn did not clear it: say so and ride the note along
+                // with the user's next request instead of looping.
+                pendingNote[appId] = res.note;
+                pushMsg(set, appId, { role: 'system', text: tt('chat.doctorStill', { n: count }) });
+                return;
+            }
+            pushMsg(set, appId, { role: 'system', text: tt('chat.doctorFound', { n: count }) });
+            doctorTurn[appId] = true;
+            await launch(set, app, res.note, 'chat');
+            return;
+        }
+
+        get().askSuggestions(appId);
     },
 
     // Ask the AI — in its own short turn, with the build still fresh in the
@@ -334,9 +372,7 @@ export const useChatStore = create(persist((set, get) => ({
             if (doneMode === 'chat' && !images) get().recordCheckpoint(appId);
             if (rebuild) get().triggerRebuild(appId);
             if (images) get().generateImages(appId, images);
-            // Native powers the user never thought to ask for, fetched as their
-            // own tiny JSON turn — but only once the run is really over.
-            if (shouldSuggest({ mode: doneMode, images, waitingSecret })) get().askSuggestions(appId);
+            if (shouldSuggest({ mode: doneMode, images, waitingSecret })) get().afterTurn(appId);
         }
     },
 }), {

@@ -6,6 +6,7 @@ import { checkEnvironment } from './services/env.js';
 import { createSession, listEngines } from './services/engines.js';
 import { imageStatus, setImageConfig, generateImage, IMAGE_PROVIDERS } from './services/image.js';
 import { scaffoldApp, updateFramework } from './services/scaffold.js';
+import { runDoctor, formatDoctorNote } from './services/doctor.js';
 import { startPreview, stopPreview, rebuildPreview } from './services/dev-server.js';
 import { tunnelStatus, tunnelInstall, startTunnel, stopTunnel, currentTunnel } from './services/tunnel.js';
 import { killAllSync } from './services/child-registry.js';
@@ -291,6 +292,14 @@ app.whenReady().then(async () => {
         const { ok, note } = await updateFramework({ dir: cwd, emit });
         if (note) await rebuildPreview({ appId, dir: cwd, emit });
         return { ok, note, frameworkUpdatedAt: ok ? new Date().toISOString() : null };
+    });
+
+    // The health check the renderer runs after every AI turn: null when the
+    // app's NativeBlade has no doctor yet, otherwise the findings plus the note
+    // handed to the AI when there are any.
+    ipcMain.handle('framework:doctor', async (_e, { cwd }) => {
+        const res = await runDoctor(cwd);
+        return res ? { ...res, note: formatDoctorNote(res) } : null;
     });
 
     ipcMain.handle('chat:stop', (_e, appId) => {
