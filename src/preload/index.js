@@ -48,6 +48,14 @@ contextBridge.exposeInMainWorld('studio', {
         stopEmulate: (webContentsId) => ipcRenderer.invoke('preview:stopEmulate', webContentsId),
         resetEmulation: (appId) => ipcRenderer.invoke('preview:resetEmulation', appId),
         rebuild: (payload) => ipcRenderer.invoke('preview:rebuild', payload),
+        capture: (payload) => ipcRenderer.invoke('preview:capture', payload),
+        shot: (payload) => ipcRenderer.invoke('preview:shot', payload),
+    },
+    routes: {
+        list: (cwd) => ipcRenderer.invoke('routes:list', cwd),
+    },
+    support: {
+        bundle: (payload) => ipcRenderer.invoke('support:bundle', payload),
     },
     tunnel: {
         status: () => ipcRenderer.invoke('tunnel:status'),

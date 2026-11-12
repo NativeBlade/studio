@@ -6,7 +6,15 @@
 
 export function planPrompt(app, idea, feedback = null) {
     const platforms = app.platforms?.length ? app.platforms.join(' + ') : 'Mobile';
-    return `You are NativeBlade Studio, an AI app builder planning the app "${app.name}" (${platforms}). Do not write or scaffold any code yet — this is the planning step only. Respond ONLY with strict JSON, no markdown fences: {"summary": string (one friendly sentence), "steps": string[] (3-7 concrete build steps in plain language, no markdown), "questions": [{"question": string, "options": string[] (2-5 short options), "multi": boolean}], "secrets": [{"env": string, "label": string, "help": string}]}. Steps are concrete, user-visible features ONLY — never meta-steps like applying styles, honoring preferences or setting up the project (those are handled separately). ALWAYS include a visual-style question (e.g. "Minimal and clean", "Soft and cozy", "Modern and vibrant") and a color-palette question (concrete palettes like "Dark with emerald accents") unless the user already specified them; add up to 3 more questions for other genuinely open choices (interface language, feature scope, static mock vs fully working). Write summary, steps, questions and options in the user's language.
+    return `You are NativeBlade Studio, an AI app builder planning the app "${app.name}" (${platforms}). Do not write or scaffold any code yet — this is the planning step only. Respond ONLY with strict JSON, no markdown fences:
+{"summary": string (one friendly sentence),
+ "steps": string[] (3-7 concrete build steps in plain language, no markdown),
+ "extras": [{"label": string, "why": string}] (2-5 OPTIONAL features the user did not ask for but that fit THIS app, off by default; prefer what makes it feel native: camera, photos, share sheet, haptics, offline, reminders/notifications, widgets, biometrics; "why" is one short sentence on what the user gains),
+ "styles": [{"label": string, "description": string}] (3-4 visual directions that FIT THIS APP'S SUBJECT AND AUDIENCE, each with one sentence on what the user will see: typography, shapes, density, mood, motion. Make them genuinely different from each other and specific to the idea, never a generic menu: a kids' game, a finance tool and a recipe book must get different directions),
+ "palettes": [{"label": string, "colors": [hex, hex, hex, hex]}] (3-4 palettes that suit the app, each as background, surface, primary accent, secondary accent in 6-digit hex; include at least one dark and one light; name them by feel, not by color names alone),
+ "questions": [{"question": string, "options": string[] (2-5 short options), "multi": boolean}] (0-3 OTHER genuinely open choices: interface language, scope, data source, who the app is for; NOT style or colors, those are above),
+ "secrets": [{"env": string, "label": string, "help": string}]}.
+Steps are concrete, user-visible features ONLY — never meta-steps like applying styles, honoring preferences or setting up the project (those are handled separately). If the user already fixed the style or colors, still return styles and palettes, with the user's choice first. Write summary, steps, extras, styles, palettes, questions and options in the user's language.
 
 "secrets" is for values ONLY THE USER CAN GET — a third-party API key, token or client secret that the planned features genuinely require (e.g. a Google Maps key for a map screen). The Studio collects them in a masked field and writes them into .env BEFORE the build, so you never have to ask for one mid-build and no secret ever lands in the chat. "env" is the .env key (UPPER_SNAKE_CASE), "label" is what the user reads (in their language), "help" tells them where to get it. Most apps need NONE — data can live in the local database; only list a key a planned feature truly cannot work without, and never invent one. Use [] when in doubt.
 
@@ -38,6 +46,8 @@ FIRST, before writing any code: read CLAUDE.md, then call the nativeblade MCP \`
 
 Approved features:
 ${features}${prefs}
+
+Every screen must have something on it from the first open: seed realistic sample data (a seeder that runs on first boot, clearly marked as sample data) so lists, dashboards and detail pages never show up empty. An empty list reads as a bug to the user.
 
 When finished, reply with a short friendly summary of what you built — plain language, no code talk.`;
 }
@@ -108,9 +118,59 @@ export function parsePlan(text, app) {
     return {
         summary: json?.summary || `Here is my plan to build ${app.name}.`,
         steps: Array.isArray(json?.steps) && json.steps.length ? json.steps.map(String) : [`Build the first version of ${app.name}`],
-        questions: questionsOrDefaults(json?.questions),
+        extras: parseExtras(json?.extras),
+        styles: stylesOrDefaults(json?.styles),
+        palettes: palettesOrDefaults(json?.palettes),
+        questions: parseQuestions(json?.questions),
         secrets: parsePlanSecrets(json?.secrets),
     };
+}
+
+/** Optional features the AI offers on top of the idea; off until the user ticks them. */
+function parseExtras(raw) {
+    return (Array.isArray(raw) ? raw : [])
+        .filter((e) => typeof e?.label === 'string' && e.label.trim())
+        .slice(0, 5)
+        .map((e) => ({ label: e.label.trim().slice(0, 80), why: typeof e.why === 'string' ? e.why.trim().slice(0, 160) : '' }));
+}
+
+const HEX = /^#[0-9a-f]{6}$/i;
+
+/** Palettes are only useful with real colors; a broken one is dropped, not guessed. */
+function palettesOrDefaults(raw) {
+    const list = (Array.isArray(raw) ? raw : [])
+        .filter((p) => typeof p?.label === 'string' && p.label.trim() && Array.isArray(p.colors))
+        .map((p) => ({ label: p.label.trim().slice(0, 60), colors: p.colors.map((c) => String(c).trim()).filter((c) => HEX.test(c)).slice(0, 4) }))
+        .filter((p) => p.colors.length >= 3)
+        .slice(0, 4);
+    if (list.length) return list;
+    return [
+        { label: 'Midnight with emerald', colors: ['#0f172a', '#1e293b', '#10b981', '#34d399'] },
+        { label: 'Paper with ocean blue', colors: ['#f8fafc', '#ffffff', '#2563eb', '#0ea5e9'] },
+        { label: 'Warm earth', colors: ['#fdf6ec', '#fff8f0', '#c2410c', '#d97706'] },
+        { label: 'Ink and one accent', colors: ['#0a0a0a', '#171717', '#fafafa', '#f43f5e'] },
+    ];
+}
+
+function stylesOrDefaults(raw) {
+    const list = (Array.isArray(raw) ? raw : [])
+        .filter((s) => typeof s?.label === 'string' && s.label.trim())
+        .map((s) => ({ label: s.label.trim().slice(0, 60), description: typeof s.description === 'string' ? s.description.trim().slice(0, 200) : '' }))
+        .slice(0, 4);
+    if (list.length) return list;
+    return [
+        { label: 'Minimal and clean', description: 'Lots of white space, one typeface, thin lines, nothing decorative.' },
+        { label: 'Soft and cozy', description: 'Rounded cards, gentle shadows, warm neutrals, friendly copy.' },
+        { label: 'Modern and vibrant', description: 'Bold headings, saturated accents, big touch targets, snappy transitions.' },
+    ];
+}
+
+/** Other open choices; style and colors have their own pickers now. */
+function parseQuestions(raw) {
+    return (Array.isArray(raw) ? raw : [])
+        .filter((q) => q && typeof q.question === 'string' && Array.isArray(q.options) && q.options.length >= 2)
+        .map((q) => ({ question: q.question, options: q.options.map(String).slice(0, 5), multi: !!q.multi }))
+        .slice(0, 3);
 }
 
 // Same validation the [[NB_SECRET]] marker applies: the key has to be a usable
@@ -126,15 +186,3 @@ function parsePlanSecrets(raw) {
         }));
 }
 
-/** The design step must always exist for a new build — same rule as the cloud. */
-function questionsOrDefaults(raw) {
-    const questions = (Array.isArray(raw) ? raw : [])
-        .filter((q) => q && typeof q.question === 'string' && Array.isArray(q.options) && q.options.length >= 2)
-        .map((q) => ({ question: q.question, options: q.options.map(String).slice(0, 5), multi: !!q.multi }))
-        .slice(0, 5);
-    if (questions.length) return questions;
-    return [
-        { question: 'What visual style do you want?', options: ['Minimal and clean', 'Soft and cozy', 'Modern and vibrant', 'Playful and colorful'], multi: false },
-        { question: 'Which color palette?', options: ['Dark with emerald accents', 'Light with blue accents', 'Warm earth tones', 'Black & white with one accent'], multi: false },
-    ];
-}

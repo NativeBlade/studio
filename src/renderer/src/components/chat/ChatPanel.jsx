@@ -23,6 +23,8 @@ export function ChatPanel({ app }) {
     const rejectPlan = useChatStore((s) => s.rejectPlan);
     const restore = useChatStore((s) => s.restore);
     const resolveSecret = useChatStore((s) => s.resolveSecret);
+    const picked = useChatStore((s) => s.picked[app.id] ?? null);
+    const clearPick = useChatStore((s) => s.clearPick);
     const scrollRef = useRef(null);
 
     // Only render the most recent WINDOW messages so an app built for months
@@ -54,14 +56,14 @@ export function ChatPanel({ app }) {
                 {shown.map((m) => {
                     if (m.role === 'group') return <ProgressGroup key={m.id} group={m} live={busy && m === lastGroup && !m.endedAt} onStop={() => stop(app.id)} />;
                     if (m.role === 'plan') return <PlanWizard key={m.id} plan={m.plan} approved={m.approved} onApprove={(steps, answers, secrets) => approvePlan(app, steps, answers, secrets)} onReject={(feedback) => rejectPlan(app, feedback)} />;
-                    if (m.role === 'checkpoint') return <Checkpoint key={m.id} cp={m} onRestore={() => restore(app, m)} />;
+                    if (m.role === 'checkpoint') return <Checkpoint key={m.id} cp={m} app={app} onRestore={() => restore(app, m)} />;
                     if (m.role === 'secret') return <SecretCard key={m.id} message={m} onResolve={(value) => resolveSecret(app, m, value)} />;
                     if (m.role === 'suggest') return <Suggestions key={m.id} items={m.items} busy={busy} onPick={(prompt) => send(app, prompt)} />;
                     return <MessageBubble key={m.id} message={m} />;
                 })}
             </div>
 
-            <Composer busy={busy} onSend={(text) => send(app, text)} />
+            <Composer busy={busy} picked={picked} onClearPick={() => clearPick(app.id)} onSend={(text) => send(app, text)} />
         </div>
     );
 }

@@ -55,6 +55,7 @@ export default function App() {
     useEffect(() => { refreshEnv(); }, [refreshEnv]);
     useEffect(() => window.studio.chat.onEvent((evt) => {
         if (evt.type === 'preview') usePreviewStore.getState().apply(evt.appId, evt);
+        else if (evt.type === 'preview-log') useChatStore.getState().previewLog(evt.appId, evt);
         else handleEvent(evt);
     }), [handleEvent]);
 

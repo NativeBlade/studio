@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Loader, Mic, Square } from 'lucide-react';
+import { Crosshair, Loader, Mic, Square } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settings.js';
 import { AUDIO_LANGUAGES } from '../../lib/languages.js';
 import { useT } from '../../lib/i18n.js';
@@ -7,8 +7,12 @@ import { createRecorder } from '../../lib/recorder.js';
 import { transcribe } from '../../lib/whisper.js';
 import { Modal } from '../ui/Modal.jsx';
 
-/** Message input: Enter sends, Shift+Enter breaks a line, mic dictates. */
-export function Composer({ onSend, busy }) {
+/**
+ * Message input: Enter sends, Shift+Enter breaks a line, mic dictates. When
+ * the user pointed at something in the preview, a chip above the field names
+ * it and the message goes out with that element attached.
+ */
+export function Composer({ onSend, busy, picked = null, onClearPick }) {
     const [value, setValue] = useState('');
     const t = useT();
     const audioLang = useSettingsStore((s) => s.audioLang);
@@ -72,6 +76,14 @@ export function Composer({ onSend, busy }) {
     return (
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
             {voiceError && <div style={{ padding: '8px 14px 0', fontSize: 11.5, color: '#ff8585' }}>{voiceError}</div>}
+            {picked && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px 0' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, borderRadius: 99, padding: '4px 10px', fontSize: 11.5, color: '#ffce7a', background: 'rgba(255,206,122,0.1)', border: '1px solid rgba(255,206,122,0.3)' }}>
+                        <Crosshair size={11} />{t('composer.pointed', { label: picked.label })}
+                        <button onClick={onClearPick} title={t('composer.unpoint')} style={{ marginLeft: 2, border: 'none', background: 'transparent', color: '#ffce7a', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>
+                    </span>
+                </div>
+            )}
             <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', padding: 14 }}>
                 <textarea
                     value={value}

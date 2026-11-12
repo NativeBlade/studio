@@ -131,9 +131,9 @@ export async function scaffoldApp({ dir, appInfo, env, emit }) {
         const id = `com.${seg(appInfo.company, 'co')}.${seg(appInfo.slug, 'app')}`;
         if (!await step('Installing NativeBlade', `php artisan nativeblade:install --name="${name}" --id="${id}" --template=blank --no-interaction`)) return false;
 
-        // The live preview is `nativeblade:dev --platform=browser`; it just needs
-        // the Laravel assets built once.
-        if (!await step('Building the app assets', 'npm run build')) return false;
+        // No `npm run build` here: `nativeblade:dev` builds the CSS itself on
+        // its first run and keeps it hot after that, so the preview starts
+        // half a minute sooner.
     }
 
     writeContextFiles(dir, appInfo, env);

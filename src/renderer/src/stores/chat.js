@@ -8,6 +8,8 @@ import { useConsoleStore, formatConsoleNote } from './console.js';
 import { planPrompt, buildPrompt, parsePlan, suggestPrompt, parseSuggestions, shouldSuggest } from '../lib/plan.js';
 import { parseSecrets, stripRebuild, parseImages } from '../lib/secret.js';
 import { translate } from '../lib/i18n.js';
+import { describePick, pickLabel } from '../lib/picker.js';
+import { tourScreens } from '../lib/tour.js';
 
 // System messages are rendered as chat, not routed through a React hook, so
 // resolve the current UI language straight from the settings store.
@@ -52,6 +54,11 @@ const pendingNote = {};
 // note for the user's next message instead.
 const doctorTurn = {};
 
+// The last runtime crash report the preview sent, per app. A report opens a
+// fix turn once; the same report again (the fix did not take, or the user
+// hit the same screen) only rides along with the next message.
+const lastCrash = {};
+
 /**
  * Conversations survive restarts (persisted like the app registry), but live
  * run state doesn't: on rehydrate, dangling groups are closed and message ids
@@ -88,6 +95,7 @@ export const useChatStore = create(persist((set, get) => ({
     byApp: {}, // appId -> message list
     busy: {}, // appId -> bool (a run is in flight)
     mode: {}, // appId -> 'plan' | 'build' | 'chat' (what the live run is doing)
+    picked: {}, // appId -> { label, info } the element the user pointed at in the preview, until the next message
 
     clearApp: (appId) => set((s) => {
         const byApp = { ...s.byApp };
@@ -114,7 +122,40 @@ export const useChatStore = create(persist((set, get) => ({
         const hasHistory = (get().byApp[app.id] ?? []).length > 0;
         if (!hasHistory) return get().startPlan(app, text); // first contact → plan first, like the cloud
         pushMsg(set, app.id, { role: 'user', text });
-        await launch(set, app, text, 'chat');
+        // The element the user pointed at rides in front of the message, once.
+        const picked = get().picked[app.id];
+        if (picked) get().clearPick(app.id);
+        await launch(set, app, picked ? `${describePick(picked.info)}\n\n${text}` : text, 'chat');
+    },
+
+    // "Point at it": the preview reported a click on an element; keep it for
+    // the next message and show it as a chip over the composer.
+    pick: (appId, info) => set((s) => ({ picked: { ...s.picked, [appId]: { label: pickLabel(info), info } } })),
+    clearPick: (appId) => set((s) => {
+        const picked = { ...s.picked };
+        delete picked[appId];
+        return { picked };
+    }),
+
+    // One file with everything support asks for (versions, doctor, log, last
+    // crash, console, last AI message), saved under the app and copied.
+    reportProblem: async (app) => {
+        if (!app?.path) return;
+        const list = get().byApp[app.id] ?? [];
+        const lastAi = [...list].reverse().find((m) => m.role === 'ai')?.text ?? null;
+        const extra = {
+            engine: useSettingsStore.getState().engine,
+            lastCrash: lastCrash[app.id] ?? null,
+            console: (useConsoleStore.getState().byApp[app.id] ?? []).slice(-15),
+            lastAi,
+        };
+        const res = await window.studio.support.bundle({ cwd: app.path, extra }).catch(() => null);
+        if (!res?.path) {
+            pushMsg(set, app.id, { role: 'error', text: tt('chat.reportFailed') });
+            return;
+        }
+        try { await navigator.clipboard.writeText(res.content); } catch { /* clipboard blocked: the file is still there */ }
+        pushMsg(set, app.id, { role: 'system', text: `${tt('chat.reportDone')} ${res.path}` });
     },
 
     stop: (appId) => window.studio.chat.stop(appId),
@@ -127,6 +168,9 @@ export const useChatStore = create(persist((set, get) => ({
         const head = await window.studio.git.head(app.path);
         if (!head?.sha || head.sha === turnBase[appId]) return; // nothing new committed
         turnBase[appId] = head.sha;
+        // How the app looks at this checkpoint, for the thumbnail the card
+        // shows on hover: the user sees what they would go back to.
+        usePreviewStore.getState().capture(appId, app.path, `checkpoints/${head.sha}`);
         set((s) => {
             const list = s.byApp[appId] ?? [];
             const n = list.filter((m) => m.role === 'checkpoint').length + 1;
@@ -146,7 +190,7 @@ export const useChatStore = create(persist((set, get) => ({
         }));
         const res = await window.studio.framework.update({ appId: app.id, cwd: app.path }).catch(() => null);
         if (res?.ok) useAppsStore.getState().setFrameworkUpdated(app.id, res.frameworkUpdatedAt);
-        if (res?.note) pendingNote[app.id] = res.note;
+        if (res?.note) addPendingNote(app.id, res.note);
         // No agent ran, so no `done` event is coming to close the group for us.
         set((s) => ({
             busy: { ...s.busy, [app.id]: false },
@@ -160,9 +204,13 @@ export const useChatStore = create(persist((set, get) => ({
     //     cannot run on the device and, when it finds something, the AI gets
     //     one turn to fix it. The user never reads a crash on their phone.
     //  2. the native-power suggestions, only when the app is healthy.
+    // `done` kept the app busy for us (the composer stays shut while the scan
+    // runs, so a quick user cannot slip a message between two turns); every
+    // exit here releases it, and launch() takes it again for a follow-up turn.
     afterTurn: async (appId) => {
+        const release = () => set((s) => ({ busy: { ...s.busy, [appId]: false } }));
         const app = useAppsStore.getState().apps.find((a) => a.id === appId);
-        if (!app?.path || get().busy[appId]) return;
+        if (!app?.path) { release(); return; }
 
         const wasFixTurn = !!doctorTurn[appId];
         delete doctorTurn[appId];
@@ -173,17 +221,76 @@ export const useChatStore = create(persist((set, get) => ({
             if (wasFixTurn) {
                 // One fix turn did not clear it: say so and ride the note along
                 // with the user's next request instead of looping.
-                pendingNote[appId] = res.note;
+                addPendingNote(appId, res.note);
                 pushMsg(set, appId, { role: 'system', text: tt('chat.doctorStill', { n: count }) });
+                release();
                 return;
             }
             pushMsg(set, appId, { role: 'system', text: tt('chat.doctorFound', { n: count }) });
             doctorTurn[appId] = true;
+            release();
             await launch(set, app, res.note, 'chat');
             return;
         }
 
+        // Healthy code: now open every screen once, so what nobody clicked yet
+        // still runs. Errors land in the console buffer and a crash opens its
+        // own fix turn through previewLog; plain errors get one fix turn here.
+        // Whatever goes wrong in here (a preload without routes.list, a webview
+        // that vanished, a hung page), busy is released: the chat never locks
+        // on "Opening every screen".
+        const entry = usePreviewStore.getState().webviews[appId];
+        if (entry?.webview && app.built && !wasFixTurn) {
+            const before = (useConsoleStore.getState().byApp[appId] ?? []).length;
+            pushMsg(set, appId, { role: 'system', text: tt('chat.touring') });
+            let visited = [];
+            try {
+                const routes = await withTimeout(window.studio.routes?.list?.(app.path), 15000, []);
+                visited = await withTimeout(tourScreens(entry.webview, routes), 45000, []);
+            } catch { /* the tour is best-effort */ }
+            // busy is ours while the tour runs, so it says nothing here; a turn
+            // launched meanwhile (a crash fix) shows as a live mode instead.
+            if (get().mode[appId]) return;
+            const errors = (useConsoleStore.getState().byApp[appId] ?? []).slice(before).filter((e) => e.level === 'error');
+            if (errors.length && visited.length) {
+                pushMsg(set, appId, { role: 'system', text: tt('chat.tourErrors', { n: visited.length }) });
+                doctorTurn[appId] = true; // same one-shot rule as the doctor fix turn
+                release();
+                const note = formatConsoleNote(useConsoleStore.getState().drain(appId));
+                await launch(set, app, `${note}\n\n[Studio] These errors appeared while the Studio opened every screen of the app (${visited.join(', ')}). Fix them, run \`php artisan nativeblade:doctor\`, bump the version, commit once, and reply with one short sentence in the user's language. Do not mention this note.`, 'chat');
+                return;
+            }
+        }
+
+        release();
         get().askSuggestions(appId);
+    },
+
+    // A log line from the live preview's dev server: the app's own errors and
+    // warnings (NativeBlade::log, PHP warnings and fatals, runtime crashes).
+    // Buffered for the next turn like the WebView console; a crash report
+    // opens a fix turn on its own.
+    previewLog: (appId, log) => {
+        if (!log?.message) return;
+        useConsoleStore.getState().push(appId, {
+            level: log.level === 'warn' ? 'warning' : 'error',
+            text: `[${log.source}] ${log.message}`,
+            source: '',
+            line: 0,
+        });
+        if (log.level === 'error' && /^PHP crashed/.test(log.message)) get().fixCrash(appId, log.message);
+    },
+
+    fixCrash: async (appId, message) => {
+        const app = useAppsStore.getState().apps.find((a) => a.id === appId);
+        if (!app?.path || !app.built) return;
+        if (lastCrash[appId] === message) return; // one fix turn per distinct report
+        lastCrash[appId] = message;
+
+        const note = `[Studio] The live preview just crashed: the PHP instance died and the shell reloaded the app. The report:\n${message}\nRead it to the end: it names the native call that was in flight, or php-wasm's own suspension points to look for (sleep, usleep, sockets, proc_open), and the request path and method. Find the cause in the code (\`php artisan nativeblade:doctor\` helps), fix it, run the doctor until it is clean, bump the version, commit once, and reply with one short sentence in the user's language. Do not mention this note.]`;
+        if (get().busy[appId]) { addPendingNote(appId, note); return; } // rides along with the next turn
+        pushMsg(set, appId, { role: 'system', text: tt('chat.crashFound') });
+        await launch(set, app, note, 'chat');
     },
 
     // Ask the AI — in its own short turn, with the build still fresh in the
@@ -202,7 +309,7 @@ export const useChatStore = create(persist((set, get) => ({
             return;
         }
         turnBase[app.id] = cp.sha;
-        pendingNote[app.id] = `[Project state changed outside the conversation: the user rolled the code back to Checkpoint v${cp.n} (git commit ${cp.sha.slice(0, 7)}${cp.subject ? `: "${cp.subject}"` : ''}) with \`git reset --hard\`. The working tree on disk now matches that commit — any edits you made after it are gone. Before making changes, re-read the relevant files to see the actual current state; do not assume your later edits are still present.]`;
+        addPendingNote(app.id, `[Project state changed outside the conversation: the user rolled the code back to Checkpoint v${cp.n} (git commit ${cp.sha.slice(0, 7)}${cp.subject ? `: "${cp.subject}"` : ''}) with \`git reset --hard\`. The working tree on disk now matches that commit — any edits you made after it are gone. Before making changes, re-read the relevant files to see the actual current state; do not assume your later edits are still present.]`);
         pushMsg(set, app.id, { role: 'system', text: tt('chat.restored', { n: cp.n }) });
         usePreviewStore.getState().reload(app.id);
     },
@@ -225,12 +332,13 @@ export const useChatStore = create(persist((set, get) => ({
     // picker) and kick off a turn telling the AI to regenerate the icons and use
     // it in the splash. The AI has the file because it lives in the project.
     applyLogo: async (app) => {
-        if (!app?.path) return;
+        if (!app?.path || get().busy[app.id]) return;
         const res = await window.studio.apps.attachLogo({ cwd: app.path });
         if (!res?.ok) {
             if (res?.error) pushMsg(set, app.id, { role: 'error', text: res.error });
             return; // user canceled the picker → do nothing
         }
+        set((s) => ({ busy: { ...s.busy, [app.id]: true } })); // hold the preview until the icon turn applies it
         const off = res.width && (res.width !== 1024 || res.height !== 1024);
         const warn = off ? ` ${tt('chat.logoWarn', { w: res.width, h: res.height })}` : '';
         pushMsg(set, app.id, { role: 'system', text: `${tt('chat.logoAdded')}${warn}` });
@@ -244,10 +352,15 @@ export const useChatStore = create(persist((set, get) => ({
     // Generate the app logo with the configured image provider, straight into
     // the icon source, then have the AI regenerate the icons + use it in the splash.
     generateLogo: async (app, prompt) => {
-        if (!app?.path || !prompt?.trim()) return;
+        if (!app?.path || !prompt?.trim() || get().busy[app.id]) return;
+        // Busy from the first second: the preview stays behind the splash until
+        // the logo is generated AND applied, instead of showing the app
+        // half-dressed while the image provider works.
+        set((s) => ({ busy: { ...s.busy, [app.id]: true } }));
         pushMsg(set, app.id, { role: 'system', text: tt('chat.logoGenerating') });
-        const r = await window.studio.image.generate({ cwd: app.path, prompt: prompt.trim(), path: 'src-tauri/icons/logo.png', size: '1024x1024' });
+        const r = await window.studio.image.generate({ cwd: app.path, prompt: prompt.trim(), path: 'src-tauri/icons/logo.png', size: '1024x1024' }).catch(() => null);
         if (!r?.ok) {
+            set((s) => ({ busy: { ...s.busy, [app.id]: false } }));
             pushMsg(set, app.id, { role: 'error', text: tt('chat.imageFail', { error: r?.error || '' }) });
             return;
         }
@@ -357,7 +470,10 @@ export const useChatStore = create(persist((set, get) => ({
                 // to hand the AI back the wheel. Staying busy keeps the composer
                 // shut and, above all, holds the preview reload back: releasing here
                 // shows the app half-dressed, without the logo it's still making.
-                return { byApp: { ...s.byApp, [appId]: pruneGroups(reopened) }, busy: { ...s.busy, [appId]: !!images }, mode: { ...s.mode, [appId]: null } };
+                // Same for the health check that follows a real turn: afterTurn
+                // releases busy itself, after the scan.
+                const hold = evt.type === 'done' && shouldSuggest({ mode, images, waitingSecret });
+                return { byApp: { ...s.byApp, [appId]: pruneGroups(reopened) }, busy: { ...s.busy, [appId]: !!images || hold }, mode: { ...s.mode, [appId]: null } };
             }
 
             return { byApp: { ...s.byApp, [appId]: list } };
@@ -384,6 +500,24 @@ export const useChatStore = create(persist((set, get) => ({
 
 function pushMsg(set, appId, msg) {
     set((s) => ({ byApp: { ...s.byApp, [appId]: [...(s.byApp[appId] ?? []), { id: nextId++, ...msg }] } }));
+}
+
+// A best-effort step must never hold the chat: past the deadline the fallback
+// wins and the step's own result, if it ever comes, is dropped.
+function withTimeout(promise, ms, fallback) {
+    return new Promise((resolve) => {
+        const timer = setTimeout(() => resolve(fallback), ms);
+        Promise.resolve(promise).then(
+            (v) => { clearTimeout(timer); resolve(v ?? fallback); },
+            () => { clearTimeout(timer); resolve(fallback); },
+        );
+    });
+}
+
+// Notes queue up: a restore note and a doctor note can both be owed to the
+// same next turn, and the second must not erase the first.
+function addPendingNote(appId, note) {
+    pendingNote[appId] = [pendingNote[appId], note].filter(Boolean).join('\n\n');
 }
 
 // `secrets` ([{env, value}]) rides straight through to main, which writes it to
@@ -414,6 +548,12 @@ async function launch(set, app, prompt, mode, secrets = []) {
     if (mode === 'chat') {
         const consoleNote = formatConsoleNote(useConsoleStore.getState().drain(app.id));
         if (consoleNote) finalPrompt = `${consoleNote}\n\n${finalPrompt}`;
+        // What the user is looking at while they ask: a screenshot of the
+        // preview, saved in the project so the AI can open it as an image.
+        const shot = await usePreviewStore.getState().capture(app.id, cwd, 'preview');
+        if (shot) {
+            finalPrompt = `[A screenshot of the live preview exactly as the user sees it right now is at ${shot} (a PNG, 390px wide phone). Read it with your file tool before changing anything visual: it shows what the user means by "this screen" and catches layout problems you cannot see in the code. Do not mention this note.]\n\n${finalPrompt}`;
+        }
     }
     if (restoreNote) finalPrompt = `${restoreNote}\n\n${finalPrompt}`;
 

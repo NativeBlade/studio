@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import { ArrowUpCircle, Hand, Image, Paintbrush, QrCode, Rocket, RotateCcw, RotateCw, Share2, Smartphone } from 'lucide-react';
+import { ArrowUpCircle, Crosshair, Hand, Image, LifeBuoy, QrCode, RefreshCw, Rocket, RotateCcw, RotateCw, Share2, Smartphone } from 'lucide-react';
 import { useChatStore } from '../../stores/chat.js';
 import { usePreviewStore } from '../../stores/preview.js';
+import { parsePick, PICKER_SCRIPT, PICKER_STOP_SCRIPT } from '../../lib/picker.js';
 import { useConsoleStore } from '../../stores/console.js';
 import { useT } from '../../lib/i18n.js';
 import { devicesForPlatforms, resolveDevice, safeAreaCss } from '../../lib/devices.js';
@@ -11,6 +12,7 @@ import { ShareModal } from './ShareModal.jsx';
 import { PublishModal } from './PublishModal.jsx';
 import { LogoModal } from './LogoModal.jsx';
 import { AppStoreLinks } from './AppStoreLinks.jsx';
+import { Menu } from '../ui/Menu.jsx';
 import logo from '../../assets/nb-logo.png';
 
 /**
@@ -37,9 +39,18 @@ export function PreviewPane({ app, preview }) {
     const [logoOpen, setLogoOpen] = useState(false);
     const busy = useChatStore((s) => s.busy[app.id] ?? false);
     const updateFramework = useChatStore((s) => s.updateFramework);
+    const reportProblem = useChatStore((s) => s.reportProblem);
+    const picking = usePreviewStore((s) => s.picking[app.id] ?? false);
+    const setPicking = usePreviewStore((s) => s.setPicking);
     const nonce = usePreviewStore((s) => s.nonce[app.id] ?? 0); // bumped on checkpoint restore
     const t = useT();
-    const src = url ? `${url}?nb=${bust}-${nonce}` : null;
+    // The preview always runs the php-wasm build iPhone and Mac use. The
+    // preview's Chromium has JSPI, so without `?php=asyncify` PHP would run
+    // the faster build those devices never get, and a crash that only happens
+    // when PHP is paused on a path Asyncify cannot pause would first show up
+    // on the user's phone instead of here. A slightly slower preview is the
+    // price, and nobody has to know there are two builds.
+    const src = url ? `${url}?nb=${bust}-${nonce}&php=asyncify` : null;
 
     const building = busy && !app.built;
     const ready = status === 'up' && !building;
@@ -72,19 +83,20 @@ export function PreviewPane({ app, preview }) {
                 <div style={{ flex: 1 }} />
                 {ready && (
                     <>
-                        {lanUrl && (
-                            <button onClick={() => setQrOpen(true)} className="nb-btn" title={t('preview.phone')} style={{ display: 'flex', alignItems: 'center', gap: 6, height: 30, borderRadius: 9, padding: '0 10px', fontSize: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#9aa0a8' }}>
-                                <QrCode size={13} />{t('preview.phoneBtn')}
-                            </button>
-                        )}
-                        <button onClick={() => setShareOpen(true)} className="nb-btn" title={t('preview.share')} style={{ display: 'flex', alignItems: 'center', gap: 6, height: 30, borderRadius: 9, padding: '0 10px', fontSize: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#9aa0a8' }}>
-                            <Share2 size={13} />{t('preview.shareBtn')}
+                        <button onClick={() => setPicking(app.id, !picking)} className="nb-btn" title={picking ? t('preview.pickOn') : t('preview.pick')} style={{ display: 'flex', alignItems: 'center', gap: 6, height: 30, borderRadius: 9, padding: '0 10px', fontSize: 12, background: picking ? 'rgba(220,38,38,0.14)' : 'rgba(255,255,255,0.04)', border: `1px solid ${picking ? 'rgba(255,77,77,0.4)' : 'rgba(255,255,255,0.1)'}`, color: picking ? '#fff' : '#9aa0a8' }}>
+                            <Crosshair size={13} />{t('preview.pickBtn')}
                         </button>
-                        <button onClick={() => setLogoOpen(true)} disabled={busy} className="nb-btn" title={t('preview.logo')} style={{ display: 'flex', alignItems: 'center', gap: 6, height: 30, borderRadius: 9, padding: '0 10px', fontSize: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#9aa0a8', opacity: busy ? 0.5 : 1 }}>
-                            <Image size={13} />{t('preview.logoBtn')}
-                        </button>
-                        <button onClick={() => window.studio.preview.rebuild({ appId: app.id, cwd: app.path })} className="nb-btn" title={t('preview.refresh')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 9, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#9aa0a8' }}><Paintbrush size={13} /></button>
-                        <button onClick={() => updateFramework(app)} disabled={busy} className="nb-btn" title={t('preview.update')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 9, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#9aa0a8', opacity: busy ? 0.5 : 1 }}><ArrowUpCircle size={13} /></button>
+                        {/* Everything that is not the daily loop lives in one menu. */}
+                        <Menu title={t('preview.more')} items={[
+                            ...(lanUrl ? [{ icon: <QrCode size={13} />, label: t('preview.phoneBtn'), onClick: () => setQrOpen(true) }] : []),
+                            { icon: <Share2 size={13} />, label: t('preview.shareBtn'), onClick: () => setShareOpen(true) },
+                            { icon: <Image size={13} />, label: t('preview.logoBtn'), onClick: () => setLogoOpen(true), disabled: busy },
+                            null,
+                            { icon: <RefreshCw size={13} />, label: t('preview.refresh'), onClick: () => usePreviewStore.getState().reload(app.id) },
+                            { icon: <ArrowUpCircle size={13} />, label: t('preview.updateBtn'), onClick: () => updateFramework(app), disabled: busy },
+                            null,
+                            { icon: <LifeBuoy size={13} />, label: t('preview.reportBtn'), onClick: () => reportProblem(app), disabled: busy },
+                        ]} />
                         <button onClick={() => setPublishOpen(true)} className="nb-btn" title={t('preview.publish')} style={{ display: 'flex', alignItems: 'center', gap: 6, height: 30, borderRadius: 9, padding: '0 11px', fontSize: 12, fontWeight: 600, color: '#fff', border: 'none', background: 'linear-gradient(180deg,#ff9d2e,#f97316)' }}>
                             <Rocket size={13} />{t('preview.publishBtn')}
                         </button>
@@ -180,6 +192,10 @@ function DeviceViewport({ appId, src, device }) {
             cssKeyRef.current = null;
             failRetriesRef.current = 0; // page loaded — reset the retry budget
             applyRef.current();
+            // Hand the live webview to the stores: screenshots, the tour and
+            // the "point at it" mode all drive it from there.
+            usePreviewStore.getState().setWebview(appId, wv, wcIdRef.current);
+            if (usePreviewStore.getState().picking[appId]) wv.executeJavaScript(PICKER_SCRIPT).catch(() => {});
         };
         // A [[NB_REBUILD]] stops → builds → restarts the dev server, so the
         // webview can hit the URL while it's briefly down (ERR_FAILED). Retry a
@@ -191,6 +207,10 @@ function DeviceViewport({ appId, src, device }) {
             setTimeout(() => { try { wv.reload(); } catch { /* webview gone */ } }, 500 * failRetriesRef.current);
         };
         const onConsole = (e) => {
+            // A "point at it" report comes through the console too (the only
+            // channel out of the app frame that needs nothing from the app).
+            const picked = parsePick(e.message);
+            if (picked) { useChatStore.getState().pick(appId, picked); return; }
             // level is a string ('error'|'warning'|…) in newer Electron, a
             // number in older (>=2 ≈ error). Keep only warnings and errors.
             const level = e.level;
@@ -218,6 +238,7 @@ function DeviceViewport({ appId, src, device }) {
             wv.removeEventListener('console-message', onConsole);
             wv.removeEventListener('did-fail-load', onFailLoad);
             if (wcIdRef.current != null) window.studio.preview.stopEmulate(wcIdRef.current);
+            usePreviewStore.getState().setWebview(appId, null);
         };
         // Re-wire when the desktop⇄mobile branch swaps the <webview> element
         // (iphone⇄android stays in the same element, so it isn't a dep).
@@ -225,6 +246,14 @@ function DeviceViewport({ appId, src, device }) {
 
     // Live-update emulation when the device or orientation changes (no reload).
     useEffect(() => { apply(); }, [device.id, device.landscape, device.emitTouch]);
+
+    // "Point at it": install or remove the click picker in the app frame.
+    const picking = usePreviewStore((s) => s.picking[appId] ?? false);
+    useEffect(() => {
+        const wv = webviewRef.current;
+        if (!wv || wcIdRef.current == null) return;
+        wv.executeJavaScript(picking ? PICKER_SCRIPT : PICKER_STOP_SCRIPT).catch(() => {});
+    }, [picking]);
 
     // Desktop: no phone frame, no emulation — the webview fills the pane.
     if (device.desktop) {

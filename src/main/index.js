@@ -7,6 +7,7 @@ import { createSession, listEngines } from './services/engines.js';
 import { imageStatus, setImageConfig, generateImage, IMAGE_PROVIDERS } from './services/image.js';
 import { scaffoldApp, updateFramework } from './services/scaffold.js';
 import { runDoctor, formatDoctorNote } from './services/doctor.js';
+import { capturePreview, readShot, listRoutes, supportBundle } from './services/studio-tools.js';
 import { startPreview, stopPreview, rebuildPreview } from './services/dev-server.js';
 import { tunnelStatus, tunnelInstall, startTunnel, stopTunnel, currentTunnel } from './services/tunnel.js';
 import { killAllSync } from './services/child-registry.js';
@@ -300,6 +301,22 @@ app.whenReady().then(async () => {
     ipcMain.handle('framework:doctor', async (_e, { cwd }) => {
         const res = await runDoctor(cwd);
         return res ? { ...res, note: formatDoctorNote(res) } : null;
+    });
+
+    // What the preview shows, saved under the app's .studio/ so the AI can read
+    // it; the same for the checkpoint thumbnails the chat shows back.
+    ipcMain.handle('preview:capture', (_e, { webContentsId, cwd, name }) => capturePreview({ webContentsId, cwd, name }));
+    ipcMain.handle('preview:shot', (_e, { cwd, name }) => readShot({ cwd, name }));
+
+    // The app's pages, for the tour that opens every screen after a build.
+    ipcMain.handle('routes:list', (_e, cwd) => listRoutes(cwd));
+
+    // One Markdown file with everything a bug report needs; the folder opens
+    // so the user can drag it wherever they ask for help.
+    ipcMain.handle('support:bundle', async (_e, { cwd, extra }) => {
+        const res = await supportBundle({ cwd, extra: { ...(extra ?? {}), studioVersion: app.getVersion() } });
+        if (res?.path) shell.showItemInFolder(res.path);
+        return res;
     });
 
     ipcMain.handle('chat:stop', (_e, appId) => {

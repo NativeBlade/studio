@@ -1,8 +1,18 @@
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { createServer } from 'net';
 import os from 'os';
 import { spawnManaged, killTree } from './child-registry.js';
+import { createLogReader } from './dev-log.js';
+
+/** Whether the app's installed NativeBlade knows `nativeblade:dev --no-open` (37.7.16+). */
+function supportsNoOpen(dir) {
+    try {
+        return readFileSync(join(dir, 'vendor/nativeblade/nativeblade/src/Commands/DevCommand.php'), 'utf-8').includes('--no-open');
+    } catch {
+        return false;
+    }
+}
 
 /**
  * The IPv4 a phone on the same WiFi can reach. The naive "first non-internal
@@ -66,21 +76,27 @@ export async function startPreview({ appId, dir, emit }) {
     emit({ type: 'preview', status: 'starting', url: null, lanUrl: null });
 
     const port = await freePort();
-    const child = spawnManaged(`php artisan nativeblade:dev --platform=browser --port=${port}`, {
+    // --no-open exists since NativeBlade 37.7.16; an app on an older version
+    // still gets REPL_ID, which the dev command has always read as "headless"
+    // (no browser window). The app is updated before its next request anyway.
+    const noOpen = supportsNoOpen(dir) ? ' --no-open' : '';
+    const child = spawnManaged(`php artisan nativeblade:dev --platform=browser --port=${port}${noOpen}`, {
         cwd: dir,
-        // REPL_ID makes the dev command treat us as headless, skipping vite's
-        // --open (which would pop the user's browser). TODO: replace with a
-        // proper --no-open flag in the next framework release.
-        env: { ...process.env, REPL_ID: 'nativeblade-studio' },
+        env: noOpen ? process.env : { ...process.env, REPL_ID: 'nativeblade-studio' },
     });
     const entry = { child, url: null, lanUrl: null };
     servers.set(appId, entry);
 
-    child.stdout.on('data', (chunk) => {
+    const logs = createLogReader((log) => emit({ type: 'preview-log', ...log }));
+    const onOutput = (chunk) => {
+        const clean = chunk.toString().replace(/\x1b\[[0-9;]*m/g, '');
+        // The app's own log lines (NativeBlade::log, PHP errors, runtime
+        // crashes) come through the dev server; the renderer feeds them to
+        // the AI, and a crash report opens a fix turn on its own.
+        logs(clean);
         if (entry.url) return;
         // Wait for vite's "Local:" line — the command banner prints the URL
         // before the server is actually accepting connections.
-        const clean = chunk.toString().replace(/\x1b\[[0-9;]*m/g, '');
         const m = clean.match(/Local:\s*(http:\/\/localhost:\d+)/);
         if (m) {
             entry.url = m[1];
@@ -88,7 +104,9 @@ export async function startPreview({ appId, dir, emit }) {
             entry.lanUrl = lan ? m[1].replace('localhost', lan) : null;
             emit({ type: 'preview', status: 'up', url: entry.url, lanUrl: entry.lanUrl });
         }
-    });
+    };
+    child.stdout.on('data', onOutput);
+    child.stderr.on('data', onOutput);
 
     child.on('close', () => {
         // Only report "down" if this is still the active server. On a quick
