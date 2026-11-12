@@ -374,6 +374,28 @@ app.whenReady().then(async () => {
         }
     });
 
+    // Conditions the app must cope with and a desk never shows: the system in
+    // dark mode, and no network at all. Both over CDP, like the device itself,
+    // so the previewed app needs nothing. Offline cuts every fetch of the
+    // webview, the app's own HTTP calls included, which is the point.
+    ipcMain.handle('preview:conditions', async (_e, { webContentsId, dark, offline }) => {
+        const wc = webContents.fromId(webContentsId);
+        if (!wc || wc.isDestroyed()) return { ok: false };
+        try {
+            if (!wc.debugger.isAttached()) wc.debugger.attach('1.3');
+            await wc.debugger.sendCommand('Emulation.setEmulatedMedia', {
+                features: [{ name: 'prefers-color-scheme', value: dark ? 'dark' : 'light' }],
+            });
+            await wc.debugger.sendCommand('Network.enable');
+            await wc.debugger.sendCommand('Network.emulateNetworkConditions', {
+                offline: !!offline, latency: 0, downloadThroughput: -1, uploadThroughput: -1,
+            });
+            return { ok: true };
+        } catch (e) {
+            return { ok: false, error: String(e?.message ?? e) };
+        }
+    });
+
     // Public tunnel (cloudflared) so a build can be shown to someone remote.
     ipcMain.handle('tunnel:status', () => tunnelStatus());
     ipcMain.handle('tunnel:install', () => tunnelInstall());
@@ -390,6 +412,8 @@ app.whenReady().then(async () => {
             await wc.debugger.sendCommand('Emulation.setEmitTouchEventsForMouse', { enabled: false, configuration: 'desktop' });
             await wc.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: false });
             await wc.debugger.sendCommand('Emulation.clearDeviceMetricsOverride');
+            await wc.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [] });
+            await wc.debugger.sendCommand('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
         } catch { /* webContents may already be tearing down */ }
         try { wc.debugger.detach(); } catch { /* already gone */ }
     }

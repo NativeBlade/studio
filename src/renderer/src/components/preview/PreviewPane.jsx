@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import { ArrowUpCircle, Crosshair, Hand, Image, LifeBuoy, QrCode, RefreshCw, Rocket, RotateCcw, RotateCw, Share2, Smartphone } from 'lucide-react';
+import { ArrowUpCircle, Crosshair, Hand, Image, LifeBuoy, Moon, QrCode, RefreshCw, Rocket, RotateCcw, RotateCw, Share2, Smartphone, WifiOff } from 'lucide-react';
 import { useChatStore } from '../../stores/chat.js';
 import { usePreviewStore } from '../../stores/preview.js';
 import { parsePick, PICKER_SCRIPT, PICKER_STOP_SCRIPT } from '../../lib/picker.js';
@@ -42,6 +42,8 @@ export function PreviewPane({ app, preview }) {
     const reportProblem = useChatStore((s) => s.reportProblem);
     const picking = usePreviewStore((s) => s.picking[app.id] ?? false);
     const setPicking = usePreviewStore((s) => s.setPicking);
+    const conditions = usePreviewStore((s) => s.conditions[app.id]) ?? NO_CONDITIONS;
+    const setConditions = usePreviewStore((s) => s.setConditions);
     const nonce = usePreviewStore((s) => s.nonce[app.id] ?? 0); // bumped on checkpoint restore
     const t = useT();
     // The preview always runs the php-wasm build iPhone and Mac use. The
@@ -92,6 +94,9 @@ export function PreviewPane({ app, preview }) {
                             { icon: <Share2 size={13} />, label: t('preview.shareBtn'), onClick: () => setShareOpen(true) },
                             { icon: <Image size={13} />, label: t('preview.logoBtn'), onClick: () => setLogoOpen(true), disabled: busy },
                             null,
+                            { icon: <Moon size={13} />, label: t('preview.dark'), checked: !!conditions.dark, onClick: () => setConditions(app.id, { dark: !conditions.dark }) },
+                            { icon: <WifiOff size={13} />, label: t('preview.offline'), checked: !!conditions.offline, onClick: () => setConditions(app.id, { offline: !conditions.offline }) },
+                            null,
                             { icon: <RefreshCw size={13} />, label: t('preview.refresh'), onClick: () => usePreviewStore.getState().reload(app.id) },
                             { icon: <ArrowUpCircle size={13} />, label: t('preview.updateBtn'), onClick: () => updateFramework(app), disabled: busy },
                             null,
@@ -133,6 +138,7 @@ export function PreviewPane({ app, preview }) {
 }
 
 const BEZEL = 12;
+const NO_CONDITIONS = { dark: false, offline: false }; // stable: a fresh object per render would re-render forever
 
 /** A device-sized <webview> in a phone frame, scaled to fit, with live emulation. */
 function DeviceViewport({ appId, src, device }) {
@@ -171,10 +177,14 @@ function DeviceViewport({ appId, src, device }) {
             if (cssKeyRef.current) { await wv.removeInsertedCSS(cssKeyRef.current); cssKeyRef.current = null; }
             if (device.desktop) {
                 await window.studio.preview.stopEmulate(wcIdRef.current);
-                return;
+            } else {
+                await window.studio.preview.emulate({ webContentsId: wcIdRef.current, device, appId });
+                cssKeyRef.current = await wv.insertCSS(safeAreaCss(device));
             }
-            await window.studio.preview.emulate({ webContentsId: wcIdRef.current, device, appId });
-            cssKeyRef.current = await wv.insertCSS(safeAreaCss(device));
+            // Dark mode and offline ride on the same debugger session, so they
+            // are re-applied after every (re)emulation and page load.
+            const c = usePreviewStore.getState().conditions[appId] ?? NO_CONDITIONS;
+            await window.studio.preview.conditions({ webContentsId: wcIdRef.current, dark: c.dark, offline: c.offline });
         } catch { /* page navigating — dom-ready will re-apply */ }
     };
     // Keep the dom-ready handler pointing at the current device, not the one
@@ -246,6 +256,13 @@ function DeviceViewport({ appId, src, device }) {
 
     // Live-update emulation when the device or orientation changes (no reload).
     useEffect(() => { apply(); }, [device.id, device.landscape, device.emitTouch]);
+
+    // Dark mode / offline toggled from the menu: apply without a reload.
+    const conditions = usePreviewStore((s) => s.conditions[appId]) ?? NO_CONDITIONS;
+    useEffect(() => {
+        if (wcIdRef.current == null) return;
+        window.studio.preview.conditions({ webContentsId: wcIdRef.current, dark: conditions.dark, offline: conditions.offline }).catch(() => {});
+    }, [conditions.dark, conditions.offline]);
 
     // "Point at it": install or remove the click picker in the app frame.
     const picking = usePreviewStore((s) => s.picking[appId] ?? false);

@@ -13,6 +13,7 @@ export const usePreviewStore = create((set, get) => ({
     // never persisted.
     webviews: {},
     picking: {}, // appId -> bool, "point at it" mode on
+    conditions: {}, // appId -> { dark, offline }: system dark mode and no network, emulated in the preview
 
     apply: (appId, evt) => set((s) => ({
         byApp: { ...s.byApp, [appId]: { status: evt.status ?? (evt.url ? 'up' : 'down'), url: evt.url ?? null, lanUrl: evt.lanUrl ?? null } },
@@ -28,6 +29,10 @@ export const usePreviewStore = create((set, get) => ({
     }),
 
     setPicking: (appId, on) => set((s) => ({ picking: { ...s.picking, [appId]: !!on } })),
+
+    setConditions: (appId, patch) => set((s) => ({
+        conditions: { ...s.conditions, [appId]: { dark: false, offline: false, ...(s.conditions[appId] ?? {}), ...patch } },
+    })),
 
     /** Save the preview as .studio/<name>.png; the project-relative path, or null. */
     capture: async (appId, cwd, name = 'preview') => {

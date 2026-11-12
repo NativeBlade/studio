@@ -49,6 +49,7 @@ contextBridge.exposeInMainWorld('studio', {
         resetEmulation: (appId) => ipcRenderer.invoke('preview:resetEmulation', appId),
         rebuild: (payload) => ipcRenderer.invoke('preview:rebuild', payload),
         capture: (payload) => ipcRenderer.invoke('preview:capture', payload),
+        conditions: (payload) => ipcRenderer.invoke('preview:conditions', payload),
         shot: (payload) => ipcRenderer.invoke('preview:shot', payload),
     },
     routes: {

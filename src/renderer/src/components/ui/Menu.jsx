@@ -40,8 +40,9 @@ export function Menu({ items, title }) {
                                     className="nb-btn"
                                     style={{ display: 'flex', width: '100%', alignItems: 'center', gap: 10, borderRadius: 9, padding: '8px 10px', fontSize: 12.5, textAlign: 'left', background: 'transparent', border: 'none', color: item.disabled ? '#6b7280' : '#e7e9ee', cursor: item.disabled ? 'default' : 'pointer' }}
                                 >
-                                    <span style={{ display: 'flex', width: 16, justifyContent: 'center', color: '#9aa0a8' }}>{item.icon}</span>
+                                    <span style={{ display: 'flex', width: 16, justifyContent: 'center', color: item.checked ? '#ff8585' : '#9aa0a8' }}>{item.icon}</span>
                                     <span style={{ flex: 1 }}>{item.label}</span>
+                                    {item.checked !== undefined && <span style={{ fontSize: 11, color: item.checked ? '#ff8585' : '#4b5563' }}>{item.checked ? '✓' : ''}</span>}
                                 </button>
                             )
                     ))}
